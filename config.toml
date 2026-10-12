@@ -16,6 +16,6 @@ w_vector = 0.7
 max_steps = 8
 
 [llm]
-model = "gpt-4o-mini"
+model = "qwen/qwen3.8-27b"
 timeout_s = 30
 max_retries = 3

@@ -7,10 +7,6 @@ STDOUT SẠCH, client discover động.
 JSON-RPC. Một `print()` debug là hỏng cả phiên. Log ra stderr — xem pattern
 `logging.StreamHandler(sys.stderr)` trong W7/ex2_1_mcp_server.py.
 
-Kiểm tra API thật của `mcp` SDK trước khi viết: bản trong W7 dùng
-`from mcp.server.mcpserver import MCPServer`. Xác nhận lại với bản `mcp`
-trong pyproject.toml rồi mới code — API đã đổi giữa các phiên bản.
-
 Chạy: python -m trfc.mcp_server.server
 """
 
@@ -20,7 +16,7 @@ import logging
 import sys
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from trfc.tools import impl
 
 _handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]  # KHÔNG dùng stdout
@@ -43,9 +39,9 @@ def _to_json_serializable(obj: Any) -> Any:
     return str(obj) if not isinstance(obj, (int, float, bool, str, type(None))) else obj
 
 
-def build_server() -> FastMCP:
+def build_server() -> MCPServer:
     """Tạo MCP server + đăng ký 5 tool. B cài đặt."""
-    mcp = FastMCP("TRFC Risk & AML Server")
+    mcp = MCPServer("TRFC Risk & AML Server")
 
     # 1. search_policy (Đọc)
     @mcp.tool()
