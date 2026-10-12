@@ -87,15 +87,3 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None) -> tuple[str
             time.sleep(2 ** attempt)
 
     return "Error: LLM call completely failed.", usage_stats
-
-if __name__ == "__main__":
-    # Test gọi thử LLM đơn lẻ
-    test_messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Xin chào, hãy giúp tôi viết một đoạn văn ngắn về trí tuệ nhân tạo."},
-    ]
-    print("--- Testing call_llm() ---", file=sys.stderr)
-    response_text, usage_info = call_llm(test_messages)
-    
-    print(f"Response:\n{response_text}")
-    print(f"\nUsage Stats: {usage_info}")
