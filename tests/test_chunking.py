@@ -7,7 +7,9 @@ gán SAI tầng. Lỗi im lặng, không crash, không có stack trace để l�
 Test phải KHẲNG ĐỊNH: không chunk nào chứa nửa bảng.
 """
 
-import pytest
+import re
+
+_TIER_ROW = re.compile(r"^\s*\|\s*Tầng\s*(\d+)\s*\|")
 
 # Bản thu nhỏ đúng hình dạng DOC0007. Bảng phải DÀI HƠN chunk_size để phép cắt
 # thật sự có cơ hội rơi vào giữa bảng — fixture ngắn thì test nào cũng xanh.
@@ -134,9 +136,29 @@ def test_chunk_size_lay_tu_config():
     assert CONFIG["chunking"]["overlap"] < CONFIG["chunking"]["chunk_size"]
 
 
-@pytest.mark.skip(reason="A — CP2")
 def test_khong_tim_thay_tra_ve_list_rong():
     """Hợp đồng với B: không có kết quả → [] , KHÔNG được trả None."""
     from trfc.rag.search import search_policy
 
     assert search_policy("zzz khong ton tai trong corpus") == []
+    assert search_policy("") == []
+
+
+def test_loc_tang_khong_tra_han_muc_cua_tang_khac():
+    """A5 — pre-filter `tier` phải loại hạn mức của tầng khác TRƯỚC khi rank.
+
+    Lọc sau thì chunk sai tầng đã chiếm slot top-K rồi. Kiểm bằng cách soi từng
+    dòng bảng trong kết quả: dòng `| Tầng N |` nào không phải tầng đang lọc là hỏng.
+    """
+    from trfc.rag.search import search_policy
+
+    results = search_policy("hạn mức giao dịch tầng eKYC 2", tier=2)
+    assert results, "phải tìm thấy chunk hạn mức tầng 2"
+    assert any(c.doc_id == "DOC0007" for c in results), "phải có bản hiện hành DOC0007"
+    for chunk in results:
+        for line in chunk.text.splitlines():
+            row = _TIER_ROW.match(line)
+            if row:
+                assert row.group(1) == "2", (
+                    f"lọc tier=2 mà trả hạn mức tầng {row.group(1)}:\n{chunk.text}"
+                )

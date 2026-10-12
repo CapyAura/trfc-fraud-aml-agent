@@ -28,14 +28,16 @@
 |---|---|---|
 | A1 | ✅ Corpus DOC0001–0009 (**A viết mới cả 9** — corpus lớp là Acme/Northwind, không có nội dung thanh toán). 16.293 token, vượt mốc 10,000 | `data/docs/*.md` |
 | A2 | ✅ Chunking theo Chương→Điều→Khoản, `chunk_size=400`, `overlap=50`, **bảng atomic** | `src/trfc/rag/chunking.py` |
-| A3 | ⬜ Embedding + vector store, similarity search top-K kèm score | `src/trfc/rag/embed.py`, `src/trfc/rag/store.py` |
-| A4 | ⬜ Dense + hybrid BM25, fuse `0.3*BM25_norm + 0.7*cosine` (tái dùng `w4/ex2_1_hybrid_search.py`) | `src/trfc/rag/search.py` |
-| A5 | ⬜ Metadata filter `tier` — pre-filter trước khi rank | `src/trfc/rag/search.py` |
+| A3 | ✅ Embedding + vector store, similarity search top-K kèm score | `src/trfc/rag/embed.py`, `src/trfc/rag/store.py` |
+| A4 | ✅ Dense + hybrid BM25, fuse `0.3*BM25_norm + 0.7*cosine` (tái dùng cách làm của `w4/ex2_1_hybrid_search.py`) | `src/trfc/rag/search.py` |
+| A5 | ✅ Metadata filter `tier` — pre-filter trước khi rank | `src/trfc/rag/search.py` |
 | A6 | ✅ Tham số chunking để trong `config.toml`, không hard-code | `config.toml` |
 
 **Định nghĩa "xong":** chạy `python -m trfc.rag.search "hạn mức giao dịch tầng eKYC 2" --tier 2` in ra chunk có `doc_id=DOC0007`, `score`, và **không** trả hạn mức của tầng khác.
 
 **Test bắt buộc để lại:** 1 test khẳng định **không chunk nào chứa nửa bảng hạn mức** (rủi ro §10 của file thiết kế — lỗi im lặng, không crash).
+
+**Ghi chú thiết kế `tier` (A5) — chỗ dễ bị hỏi:** không doc nào có `tier:` trong frontmatter, và bảng hạn mức phải nguyên khối nên **một chunk chứa cả 3 tầng**. Vậy `tier` không đọc được từ metadata cũng không gắn được ở mức chunk. Cách làm: mỗi dòng `| Tầng N | ...` sinh thêm một *view* cùng `doc_id`/`chunk_index` nhưng chỉ giữ dòng của tầng N (`store._tier_views`); `rank_candidates(tier)` chỉ trả view đúng tầng. Nhờ vậy pre-filter chạy **trước** khi rank và chunk sai tầng không bao giờ chiếm slot top-K.
 
 **Câu hỏi GV dự kiến:**
 - `chunk_size=400` chọn thế nào? Thử 200 thì hỏng ở đâu?

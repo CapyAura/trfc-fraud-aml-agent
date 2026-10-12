@@ -6,14 +6,14 @@ trạng thái để chứng minh hành động đã có hiệu lực.
 
 ## Trạng thái
 
-Đang dựng. Lát cắt của A (corpus + chunking) đã xong; tool/agent/MCP và eval còn là khung rỗng
-có docstring, chưa cài đặt.
+Đang dựng. Lát cắt của A (corpus → chunking → retrieval) đã xong; tool/agent/MCP và eval còn là
+khung rỗng có docstring, chưa cài đặt.
 
 | Lát cắt | Trạng thái |
 |---|---|
 | A — corpus | **xong**: 9 tài liệu, 16.293 token (tiktoken cl100k_base) |
-| A — chunking | **xong**: cắt theo Chương→Điều→Khoản, bảng markdown atomic; 4 test pass |
-| A — embed / store / search | khung rỗng — `search_policy` còn `raise NotImplementedError` |
+| A — chunking | **xong**: cắt theo Chương→Điều→Khoản, bảng markdown atomic |
+| A — embed / store / search | **xong**: dense + hybrid BM25 (`0.3*BM25_norm + 0.7*cosine`), top-K kèm score, pre-filter `tier` |
 | B — tool / agent loop / MCP | khung rỗng, mốc CP2 |
 | C — testset / eval / log | khung rỗng, mốc CP4 |
 
@@ -23,11 +23,16 @@ có docstring, chưa cài đặt.
 make setup && make demo      # CHƯA chạy được — demo cần agent loop của B (CP3)
 ```
 
-Phần đã xong kiểm tra được ngay:
+Phần đã xong kiểm tra được ngay (chưa cần API key — `embed.py` tự rơi về offline-hashing):
 
 ```bash
 python -m pytest tests/test_chunking.py
+python -m trfc.rag.embed                              # self-check embedding
+python -m trfc.rag.search "hạn mức giao dịch tầng eKYC 2" --tier 2
+python -m trfc.rag.search "giao dịch bất thường cần báo cáo" --mode dense   # so sánh dense vs hybrid
 ```
+
+Chạy trực tiếp từ gốc repo cần `PYTHONPATH=src` nếu chưa `pip install -e .`.
 
 ## Tài liệu
 

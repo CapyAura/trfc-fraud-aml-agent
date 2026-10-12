@@ -1,5 +1,3 @@
-> Xem Makefile.txt nếu máy bạn không có `make`.
-
 PY := .venv/Scripts/python.exe
 ifeq ($(OS),)
 PY := .venv/bin/python
