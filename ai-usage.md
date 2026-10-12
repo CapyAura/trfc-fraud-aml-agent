@@ -5,7 +5,7 @@
 
 ## Công cụ đã dùng
 
-| Công cụ | Dùng cho phần nào |
+| Công cụ | Dùng cho phần nào |s
 |---|---|
 | Claude Code | Scaffold cấu trúc thư mục, viết docstring khung, rà yêu cầu học phần |
 | Claude Code | Soạn 9 tài liệu corpus `data/docs/DOC0001–0009.md` từ đề cương do A chốt |
