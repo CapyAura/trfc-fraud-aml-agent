@@ -1,0 +1,10 @@
+> Windows không có `make` sẵn. Hoặc `winget install ezwinports.make`, hoặc chạy lệnh thô ở cột phải.
+
+| Lệnh | Việc | Tương đương khi không có make |
+|---|---|---|
+| `make setup` | Tạo `.venv` + cài deps | `python -m venv .venv` rồi `.venv\Scripts\pip install -e ".[dev]"` |
+| `make demo` | Chạy 1 câu hỏi end-to-end | `.venv\Scripts\python -m trfc.agent.loop "ACC001 có vượt hạn mức không?"` |
+| `make eval` | Chạy testset, in bảng metric | `.venv\Scripts\python -m eval.run_eval` |
+| `make test` | Chạy self-check + pytest | `.venv\Scripts\python -m pytest` |
+
+Mục tiêu: GV clone repo sạch, chạy **đúng 1 lệnh** `make setup && make demo` là ra kết quả (yêu cầu 2.1).

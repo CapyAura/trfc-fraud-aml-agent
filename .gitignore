@@ -1,0 +1,22 @@
+# Secrets — KHÔNG BAO GIỜ commit
+.env
+*.env
+
+# Virtual environment
+.venv/
+venv/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Tài liệu môn học do giảng viên cung cấp — không đưa lên GitHub
+Ref/
+
+# SQLite sinh ra khi chạy — mỗi máy tự tạo lại từ seed trong tools/state.py
+data/*.db
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini

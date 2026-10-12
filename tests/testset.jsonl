@@ -1,0 +1,16 @@
+"""Testset — chủ sở hữu: C. ĐÓNG BĂNG ở CP4; A và B không được sửa.
+
+Định dạng mỗi dòng (JSONL, 1 object/dòng):
+  {"id": "q01", "question": "...", "type": "retrieval|calc|contradiction|multi_doc|no_answer",
+   "refusal_type": null|"i"|"ii", "expected": "...", "must_cite": ["DOC0007"]}
+
+Phân bố bắt buộc (DE_TAI_TRFC_Agent.md §7) — tổng 12 câu, ≥4 no_answer:
+  retrieval      3   tra 1 chunk, trả lời có trích dẫn
+  calc           2   tổng giá trị dồn ngày, % vượt hạn mức
+  contradiction  2   2 giao dịch 2 quốc gia trong 10 phút; chọn policy mới nhất
+  multi_doc      1   phải trích ≥2 document
+  no_answer (i)  2   phương thức ngoài phạm vi (không có trong DOC0009)
+  no_answer (ii) 2   có quy định nhưng thiếu log giao dịch gốc → không tính được
+
+⚠️ no_answer loại (i) và (ii) phải KHÁC NHAU về bản chất: (i) lỗi ở khâu TRUY VẤN,
+(ii) lỗi ở khâu SUY LUẬN. Nếu gộp thì không chứng minh được calibration.

@@ -1,0 +1,21 @@
+# Tham số pipeline — KHÔNG hard-code trong code (yêu cầu 2.5 + điểm cộng "so sánh cấu hình").
+# Đọc bằng tomllib (stdlib) nên không cần PyYAML.
+
+[chunking]
+strategy = "structural"   # structural | fixed
+chunk_size = 400          # token
+overlap = 50              # token
+
+[retrieval]
+mode = "hybrid"           # dense | hybrid
+top_k = 5
+w_bm25 = 0.3
+w_vector = 0.7
+
+[agent]
+max_steps = 8
+
+[llm]
+model = "gpt-4o-mini"
+timeout_s = 30
+max_retries = 3
