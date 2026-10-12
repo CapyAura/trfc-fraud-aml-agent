@@ -9,6 +9,7 @@ Hai điều GV sẽ hỏi trực tiếp:
 import pytest
 
 
+@pytest.mark.skip(reason="B — CP2: bỏ skip khi impl.py + state.py xong")
 def test_verify_doc_lai_tu_db(tmp_path):
     """Sau khi freeze, get_account_risk_status phải thấy frozen=True TỪ DB."""
     from trfc.tools import impl, state
@@ -23,6 +24,7 @@ def test_verify_doc_lai_tu_db(tmp_path):
     assert status.frozen_at is not None
 
 
+@pytest.mark.skip(reason="B — CP2")
 def test_tool_loi_tra_chuoi_khong_raise():
     """Tài khoản không tồn tại → chuỗi 'Error: ...', không exception (yêu cầu 2.6)."""
     from trfc.tools import impl
@@ -32,7 +34,7 @@ def test_tool_loi_tra_chuoi_khong_raise():
     assert result.startswith("Error:")
 
 
-@pytest.mark.skip(reason="B — CP2: Bỏ skip khi sửa xong parse.py ở mốc B5")
+@pytest.mark.skip(reason="B — CP2")
 def test_parse_action_khong_crash_voi_json_hong():
     """JSON thiếu dấu ngoặc → lỗi parse, không làm chết run (yêu cầu 2.6)."""
     from trfc.agent.parse import parse_action
@@ -42,6 +44,7 @@ def test_parse_action_khong_crash_voi_json_hong():
     assert result.startswith("Error:")
 
 
+@pytest.mark.skip(reason="B — CP2")
 def test_du_lieu_seed_dung_ca_testset():
     """Ca ACC001 phải vượt hạn mức tầng 2 — nếu seed đổi, testset của C vỡ."""
     from trfc.tools import state

@@ -14,7 +14,7 @@
 | **Mục report** | §3 (RAG) | §4 (Agent & tool) + §5 (MCP) | §6 (Đánh giá) |
 | **Điểm nhóm liên quan** | RAG 13 | Agent 12 + MCP 8 | Đánh giá 10 + Tái lập 12 |
 | **Điểm cộng nhắm** | +1 metadata filter, +1 so sánh cấu hình | — | +1 host thứ hai, +1 đồ thị + CSV |
-| **Thư mục sở hữu** | `src/rag/`, `data/docs/`, `config.yaml` | `src/tools/`, `src/mcp_server/`, `src/agent/`, `prompts/` | `eval/`, `tests/`, `logs/`, `Makefile`, `README.md` |
+| **Thư mục sở hữu** | `src/trfc/rag/`, `data/docs/`, `config.toml` | `src/trfc/tools/`, `src/trfc/mcp_server/`, `src/trfc/agent/`, `prompts/` | `eval/`, `tests/`, `logs/`, `Makefile`, `README.md` |
 
 **Điểm cộng "host thứ hai"** giao cho C nhưng **B cung cấp server** — C viết client thứ hai, đây là chủ ý: người viết client không phải người viết server thì mới chứng minh được interop thật.
 
@@ -26,16 +26,18 @@
 
 | # | Việc | File |
 |---|---|---|
-| A1 | Thu thập & chuẩn hoá corpus: DOC0001–0006 (tái dùng của lớp) + viết mới DOC0007 (bảng hạn mức eKYC), DOC0008 (quy trình khóa TK), DOC0009 (danh mục phương thức trong phạm vi). Đủ ≥5 doc, ≥10,000 token | `data/docs/*.md` |
-| A2 | Chunking recursive theo Chương→Điều→Khoản, `chunk_size=400`, `overlap=50`, **bảng atomic** | `src/rag/chunking.py` |
-| A3 | Embedding + vector store, similarity search top-K kèm score | `src/rag/embed.py`, `src/rag/store.py` |
-| A4 | Dense + hybrid BM25, fuse `0.3*BM25_norm + 0.7*cosine` (tái dùng `w4/ex2_1_hybrid_search.py`) | `src/rag/search.py` |
-| A5 | Metadata filter `tier` — pre-filter trước khi rank | `src/rag/search.py` |
-| A6 | 3 tham số chunking để trong `config.yaml`, không hard-code | `config.yaml` |
+| A1 | ✅ Corpus DOC0001–0009 (**A viết mới cả 9** — corpus lớp là Acme/Northwind, không có nội dung thanh toán). 16.293 token, vượt mốc 10,000 | `data/docs/*.md` |
+| A2 | ✅ Chunking theo Chương→Điều→Khoản, `chunk_size=400`, `overlap=50`, **bảng atomic** | `src/trfc/rag/chunking.py` |
+| A3 | ✅ Embedding + vector store, similarity search top-K kèm score | `src/trfc/rag/embed.py`, `src/trfc/rag/store.py` |
+| A4 | ✅ Dense + hybrid BM25, fuse `0.3*BM25_norm + 0.7*cosine` (tái dùng cách làm của `w4/ex2_1_hybrid_search.py`) | `src/trfc/rag/search.py` |
+| A5 | ✅ Metadata filter `tier` — pre-filter trước khi rank | `src/trfc/rag/search.py` |
+| A6 | ✅ Tham số chunking để trong `config.toml`, không hard-code | `config.toml` |
 
-**Định nghĩa "xong":** chạy `python -m src.rag.search "hạn mức giao dịch tầng eKYC 2" --tier 2` in ra chunk có `doc_id=DOC0007`, `score`, và **không** trả hạn mức của tầng khác.
+**Định nghĩa "xong":** chạy `python -m trfc.rag.search "hạn mức giao dịch tầng eKYC 2" --tier 2` in ra chunk có `doc_id=DOC0007`, `score`, và **không** trả hạn mức của tầng khác.
 
 **Test bắt buộc để lại:** 1 test khẳng định **không chunk nào chứa nửa bảng hạn mức** (rủi ro §10 của file thiết kế — lỗi im lặng, không crash).
+
+**Ghi chú thiết kế `tier` (A5) — chỗ dễ bị hỏi:** không doc nào có `tier:` trong frontmatter, và bảng hạn mức phải nguyên khối nên **một chunk chứa cả 3 tầng**. Vậy `tier` không đọc được từ metadata cũng không gắn được ở mức chunk. Cách làm: mỗi dòng `| Tầng N | ...` sinh thêm một *view* cùng `doc_id`/`chunk_index` nhưng chỉ giữ dòng của tầng N (`store._tier_views`); `rank_candidates(tier)` chỉ trả view đúng tầng. Nhờ vậy pre-filter chạy **trước** khi rank và chunk sai tầng không bao giờ chiếm slot top-K.
 
 **Câu hỏi GV dự kiến:**
 - `chunk_size=400` chọn thế nào? Thử 200 thì hỏng ở đâu?
@@ -51,12 +53,12 @@
 
 | # | Việc | File |
 |---|---|---|
-| B1 | Tool schema `@dataclass` + type hint: `Chunk`, `Transaction`, `RiskStatus`, `Ack` | `src/tools/schemas.py` |
-| B2 | 5 tool: `search_policy`, `get_transactions`, `get_account_risk_status`, `freeze_account_temporarily`, `flag_suspicious_tx` | `src/tools/impl.py` |
-| B3 | Side effect **ghi SQLite thật** (`data/state.db`), không mock trả `"OK"` | `src/tools/impl.py` |
-| B4 | MCP server stdio, **stdout sạch** (log ra stderr) | `src/mcp_server/server.py` |
-| B5 | ReAct loop, `MAX_STEPS=8`, tool lỗi trả `"Error: ..."` **không raise**, parse action an toàn | `src/agent/loop.py`, `src/agent/parse.py` |
-| B6 | `call_llm()` bọc duy nhất — retry + timeout + log lỗi HTTP | `src/agent/llm.py` |
+| B1 |✅ Tool schema `@dataclass` + type hint: `Chunk`, `Transaction`, `RiskStatus`, `Ack` | `src/trfc/tools/schemas.py` |
+| B2 |✅ 5 tool: `search_policy`, `get_transactions`, `get_account_risk_status`, `freeze_account_temporarily`, `flag_suspicious_tx` | `src/trfc/tools/impl.py` |
+| B3 |✅ Side effect **ghi SQLite thật** (`data/state.db`), không mock trả `"OK"` | `src/trfc/tools/impl.py` |
+| B4 | MCP server stdio, **stdout sạch** (log ra stderr) | `src/trfc/mcp_server/server.py` |
+| B5 | ReAct loop, `MAX_STEPS=8`, tool lỗi trả `"Error: ..."` **không raise**, parse action an toàn | `src/trfc/agent/loop.py`, `src/trfc/agent/parse.py` |
+| B6 | `call_llm()` bọc duy nhất — retry + timeout + log lỗi HTTP | `src/trfc/agent/llm.py` |
 | B7 | Prompt tách khỏi code | `prompts/*.txt` |
 
 **Định nghĩa "xong":** chạy được trace mục tiêu ở §6 file thiết kế — `search → get_tx → tính → freeze → verify`, và dòng verify cho thấy `frozen=True`, `checked_at` mới hơn `frozen_at`.
@@ -83,7 +85,7 @@
 | C3 | Log `jsonl` mỗi bước: timestamp, step, tool, args, result, `USAGE` (calls, prompt/completion tokens, max_prompt) | `eval/run_eval.py` |
 | C4 | `logs/` ≥3 lần chạy thật, **kết quả khác nhau có chủ đích** (1 freeze / 1 flag / 1 từ chối) | `logs/*.jsonl` |
 | C5 | CSV theo từng câu + biểu đồ faithfulness/refusal | `eval/` |
-| C6 | Client MCP thứ hai (ngoài agent) discover & gọi tool | `src/mcp_server/client2.py` |
+| C6 | Client MCP thứ hai (ngoài agent) discover & gọi tool | `src/trfc/mcp_server/client2.py` |
 | C7 | `Makefile` (`setup`, `demo`, `eval`), `README.md`, `.env.example`, `ai-usage.md` | gốc repo |
 | C8 | Kỷ luật git: `.gitignore`, `.git` trong bản nộp, không lộ key | — |
 
@@ -119,7 +121,7 @@
 | Mốc | Ngày | Nội dung | Điều kiện qua mốc |
 |---|---|---|---|
 | **CP0** | 1 | **Chốt interface + xác nhận đề tài với GV** | Bảng §7 dưới đã ký; GV xác nhận không trùng T2 |
-| **CP1** | 2 | Scaffold: cấu trúc thư mục, `config.yaml`, `Makefile` rỗng, `schemas.py` | `git log` có commit của **cả 3 người** |
+| **CP1** | 2 | ✅ Scaffold: cấu trúc thư mục, `config.toml`, `Makefile` rỗng, `schemas.py` | `git log` có commit của **cả 3 người** |
 | **CP2** | 3–5 | Mỗi lát cắt chạy độc lập | A: search trả top-K có score · B: loop chạy với tool giả · C: testset nháp + logging chạy |
 | **CP3** | 6–7 | **Tích hợp** — end-to-end 1 câu hỏi thật | Trace đủ `search → freeze → verify` |
 | **CP4** | 8–9 | Eval + ≥3 log + report | `make eval` ra số; report đủ 9 mục |
@@ -150,7 +152,7 @@ class Chunk:
 ```
 
 **Quy tắc:**
-1. `Chunk` sống ở `src/tools/schemas.py` (B sở hữu). A **import**, không copy.
+1. `Chunk` sống ở `src/trfc/tools/schemas.py` (B sở hữu). A **import**, không copy.
 2. A không được trả `None` — không tìm thấy thì trả `[]`, B xử lý ca rỗng.
 3. B không được sửa `search_policy` — cần đổi thì mở issue/báo A.
 4. Đổi chữ ký tool → sửa **cả** `impl.py`, `server.py`, `schemas.py` trong **cùng 1 commit**.

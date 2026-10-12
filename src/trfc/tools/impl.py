@@ -15,6 +15,7 @@ ponytail: để trống có chủ đích. Đây là phần bị vấn đáp nặ
 agent thực sự dùng kết quả tool") nên B phải viết tay.
 """
 
+<<<<<<< HEAD
 from datetime import datetime, timezone
 import sys
 
@@ -22,10 +23,14 @@ import sys
 from trfc.tools.schemas import Ack, Chunk, RiskStatus, Transaction
 from trfc.tools.state import connect
 
+=======
+from trfc.tools.schemas import Ack, Chunk, RiskStatus, Transaction
+>>>>>>> 72732de2a778371d2daaf5982d15ab92e268af37
 
 
 def get_transactions(account_id: str, date_from: str, date_to: str) -> list[Transaction]:
     """Giao dịch của tài khoản trong khoảng ngày (YYYY-MM-DD). B cài đặt."""
+<<<<<<< HEAD
 
     try:
         conn = connect()
@@ -112,10 +117,19 @@ def get_account_risk_status(account_id: str) -> RiskStatus:
     except Exception as e:
         print(f"[ERROR] Get account at risk status failed: {e}", file=sys.stderr)
         return f"Error: Failed to get risk status for account {account_id}: {str(e)}"
+=======
+    raise NotImplementedError("B — CP2.")
+
+
+def get_account_risk_status(account_id: str) -> RiskStatus:
+    """Đọc trạng thái rủi ro HIỆN TẠI từ state.db. B cài đặt — đây là bước verify."""
+    raise NotImplementedError("B — CP2.")
+>>>>>>> 72732de2a778371d2daaf5982d15ab92e268af37
 
 
 def freeze_account_temporarily(account_id: str, reason: str) -> Ack:
     """Ghi: khoá tạm thời tài khoản. B cài đặt."""
+<<<<<<< HEAD
 
     try:
         conn = connect()
@@ -179,13 +193,28 @@ def flag_suspicious_tx(tx_id: str, reason: str) -> Ack:
     except Exception as e:
         print(f"[TOOL ERROR] flag_suspicious_tx failed: {e}", file=sys.stderr)
         return f"Error: Failed to flag transaction {tx_id}: {str(e)}"
+=======
+    raise NotImplementedError("B — CP2.")
+
+
+def flag_suspicious_tx(tx_id: str, reason: str) -> Ack:
+    """Ghi: đánh dấu giao dịch đáng ngờ. B cài đặt."""
+    raise NotImplementedError("B — CP2.")
+
+>>>>>>> 72732de2a778371d2daaf5982d15ab92e268af37
 
 def search_policy(query: str, k: int = 5, tier: int | None = None,
                   mode: str = "hybrid") -> list[Chunk]:
     """Uỷ quyền cho A — B không sửa logic ở đây (PHAN_CONG.md §7 quy tắc 3)."""
+<<<<<<< HEAD
     try:
         from trfc.rag.search import search_policy as _impl
         return _impl(query=query, k=k, tier=tier, mode=mode)
     except Exception as e:
         print(f"[TOOL ERROR] search_policy failed: {e}", file=sys.stderr)
         return f"Error: Policy search failed: {str(e)}"
+=======
+    from trfc.rag.search import search_policy as _impl
+
+    return _impl(query=query, k=k, tier=tier, mode=mode)
+>>>>>>> 72732de2a778371d2daaf5982d15ab92e268af37

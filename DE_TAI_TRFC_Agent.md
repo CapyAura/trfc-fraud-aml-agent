@@ -41,10 +41,16 @@
 
 | Nguồn | Nội dung | Metadata |
 |---|---|---|
-| `DOC0001–DOC0006` (của lớp, tái dùng) | Quy định an toàn giao dịch thanh toán | `doc_id`, `title`, `date/version`, `owner` |
-| **DOC0007** (mới) | Hạn mức giao dịch theo tầng eKYC (bảng) | `owner: Risk`, `version: 2026.1` |
-| **DOC0008** (mới) | Quy trình xử lý & khóa tài khoản rủi ro | `owner: Compliance` |
-| **DOC0009** (mới) | Danh mục phương thức thanh toán **trong** phạm vi quản lý | `owner: Risk` — dùng cho ca `no_answer` loại (i) |
+| `DOC0001–DOC0006` (**A viết mới**) | Quy định an toàn giao dịch thanh toán | `doc_id`, `title`, `date/version`, `owner` |
+| **DOC0007** (A viết mới) | Hạn mức giao dịch theo tầng eKYC (bảng) | `owner: Risk`, `version: 2026.1` |
+| **DOC0008** (A viết mới) | Quy trình xử lý & khóa tài khoản rủi ro | `owner: Compliance` |
+| **DOC0009** (A viết mới) | Danh mục phương thức thanh toán **trong** phạm vi quản lý | `owner: Risk` — dùng cho ca `no_answer` loại (i) |
+
+> **Không tái dùng DOC0001–DOC0006 của lớp.** Yêu cầu §2.5 (`02-Yeu-cau-Thuc-hien.pdf`)
+> cho phép, nhưng bộ tài liệu lớp thực có trên đĩa (`W8/data/data/01–07.txt`) là
+> Acme/Northwind — remote work, IT helpdesk, procurement, office directory, equipment
+> catalog, security remote access — **không có nội dung thanh toán/eKYC/AML nào**.
+> Lấy nó làm corpus thì mất luôn tầng (b). Xem `data/docs/README.md`.
 
 Yêu cầu học phần: ≥5 tài liệu, ≥10,000 token tổng. **Không dùng dữ liệu nhóm khác.**
 

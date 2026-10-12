@@ -4,10 +4,19 @@
 
 | doc_id | Nội dung | Nguồn |
 |---|---|---|
-| DOC0001–0006 | Quy định an toàn giao dịch thanh toán | **Tái dùng của lớp** (được phép) |
+| DOC0001–0006 | Quy định an toàn giao dịch thanh toán | A viết mới |
 | DOC0007 | Hạn mức giao dịch theo tầng eKYC — **BẢNG** | A viết mới |
 | DOC0008 | Quy trình xử lý & khoá tài khoản rủi ro | A viết mới |
 | DOC0009 | Danh mục phương thức thanh toán **trong** phạm vi | A viết mới |
+
+⚠️ **DOC0001–0006 KHÔNG tái dùng được.** Yêu cầu §2.5 (`02-Yeu-cau-Thuc-hien.pdf`)
+cho phép "tái dùng DOC0001–DOC0006 của lớp", nhưng bộ tài liệu lớp thực có trên đĩa
+(`W8/data/data/01–07.txt`) là **Acme/Northwind**: remote work, IT helpdesk, procurement,
+office directory, equipment catalog, security remote access — **không có một chữ nào về
+thanh toán, eKYC hay AML**. Lấy nó làm corpus thì đề tài mất luôn tầng (b): không có
+hạn mức, không có giao dịch, không có gì để tính hay đối chiếu.
+
+⇒ Cả 9 tài liệu do A viết. Giữ đúng mã DOC0001–DOC0009 để khớp testset của C.
 
 ⚠️ Không dùng dữ liệu của nhóm khác cùng đề tài.
 
