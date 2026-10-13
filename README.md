@@ -14,7 +14,7 @@ khung rỗng có docstring, chưa cài đặt.
 | A — corpus | **xong**: 9 tài liệu, 16.293 token (tiktoken cl100k_base) |
 | A — chunking | **xong**: cắt theo Chương→Điều→Khoản, bảng markdown atomic |
 | A — embed / store / search | **xong**: dense + hybrid BM25 (`0.3*BM25_norm + 0.7*cosine`), top-K kèm score, pre-filter `tier` |
-| B — tool / agent loop / MCP | khung rỗng, mốc CP2 |
+| B — tool / agent loop / MCP | **xong** |
 | C — testset / eval / log | khung rỗng, mốc CP4 |
 
 ## Chạy
