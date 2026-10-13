@@ -102,17 +102,19 @@ CSV and charts explicitly labelled as having no evaluation data.
 
 ## Current integration limitations
 
-- `src/trfc/agent/loop.py` currently exposes an async `run()` but its CLI calls it
-  without awaiting it.
-- `src/trfc/agent/llm.py` imports Groq, while `pyproject.toml` does not declare
-  the Groq package. `.env.example` documents `GROQ_API_KEY` and the fallback
-  `LLM_API_KEY`; credentials alone do not resolve the missing package.
-- The loop supplies function-tool schemas but the current wrapper returns only
-  message text and the parser expects a custom JSON action. A/B need to agree on
-  one protocol and expose the result fields above.
-- The loop currently discards usage and does not return a structured per-question
-  trace/context/refusal classification. A C adapter cannot safely infer these.
-- No genuine run logs are included. C4 remains pending until real scenarios run.
+- `src/trfc/agent/loop.py` exposes an async `run()` function, and its CLI now
+  invokes it using `asyncio.run(...)`.
+- `src/trfc/agent/llm.py` uses Groq. The `groq` dependency is declared in
+  `pyproject.toml` and `uv.lock`. The configured environment loads
+  `GROQ_API_KEY`, with `LLM_API_KEY` as a fallback.
+- The loop supplies function-tool schemas, but the wrapper returns message text
+  and the parser expects a custom JSON action. The LLM/MCP tool-calling protocol
+  still needs end-to-end verification and agreement with Person B.
+- The loop does not yet expose all the structured per-question information
+  required by the evaluation adapter, including usage, retrieved contexts,
+  refusal classification, and per-step tool events.
+- No genuine run logs are included. C4 remains pending until real scenarios
+  have been executed and their logs validated.
 - C6's independent client uses the project's MCP stdio SDK, discovers tool names
   and schemas at runtime, and only calls a tool explicitly selected with
   `--tool`. Run from the project root, for example:
@@ -151,9 +153,7 @@ checkout. Pytest writes temporary files under .test-tmp/pytest. The remaining
 tests and dry run need no API keys. Embedding code uses
 `OPENAI_API_KEY` or `JINA_API_KEY` when configured and otherwise falls back to
 offline hashing; configuring a key can cause external embedding requests.
-Agent/LLM calls read `GROQ_API_KEY`, falling back to `LLM_API_KEY`, and may
-override the model with `LLM_MODEL`. A working Groq credential/service and the
-undeclared `groq` package are needed for the current LLM wrapper.
+Agent/LLM calls read `GROQ_API_KEY`, falling back to `LLM_API_KEY`, and may override the model with `LLM_MODEL`. The Groq dependency is declared in `pyproject.toml` and `uv.lock`. Live LLM calls require a valid Groq credential, network access, and an available model/service. The `.env` file should remain untracked and excluded by `.gitignore`; `.env.example` may be committed without real credentials.
 
 Report generation reads an existing evaluation JSONL; it does not run the
 agent. It creates `evaluation.csv`, `faithfulness.svg`, and
@@ -228,11 +228,10 @@ event validator on each retained file; separately review execution provenance.
    or `ii`), and a trace showing no freeze/flag write tool was called. This
    scenario must not change state.
 
-At present all three genuine scenarios are blocked: `run_eval` has no bundled
-adapter; `src/trfc/agent/loop.py` returns only a final string, discards LLM
-usage, and does not return structured tool events; its CLI does not await the
-async `run()`. In addition, `src/trfc/tools/state.py` hardcodes the default
-database path. A/B must provide an awaitable working entry point, structured
-per-step events with usage, and a configurable isolated database/runtime before
-freeze/flag runs can be safely performed. Refusal still requires the structured
-adapter and working entry point. No real scenario logs are currently present.
+At present, all three genuine scenarios remain blocked pending runtime
+integration. The CLI now awaits `run()` through `asyncio.run(...)`, but this
+alone does not establish end-to-end tool calling. The agent still needs a
+verified LLM/MCP protocol, structured per-step events and usage, and a supported
+isolated database configuration before freeze/flag runs can safely be
+performed. Refusal evaluation also requires an adapter that supplies the
+expected structured fields. No genuine scenario logs are currently present.
