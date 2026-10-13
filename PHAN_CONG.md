@@ -56,9 +56,9 @@
 | B1 |✅ Tool schema `@dataclass` + type hint: `Chunk`, `Transaction`, `RiskStatus`, `Ack` | `src/trfc/tools/schemas.py` |
 | B2 |✅ 5 tool: `search_policy`, `get_transactions`, `get_account_risk_status`, `freeze_account_temporarily`, `flag_suspicious_tx` | `src/trfc/tools/impl.py` |
 | B3 |✅ Side effect **ghi SQLite thật** (`data/state.db`), không mock trả `"OK"` | `src/trfc/tools/impl.py` |
-| B4 | MCP server stdio, **stdout sạch** (log ra stderr) | `src/trfc/mcp_server/server.py` |
-| B5 | ReAct loop, `MAX_STEPS=8`, tool lỗi trả `"Error: ..."` **không raise**, parse action an toàn | `src/trfc/agent/loop.py`, `src/trfc/agent/parse.py` |
-| B6 | `call_llm()` bọc duy nhất — retry + timeout + log lỗi HTTP | `src/trfc/agent/llm.py` |
+| B4 |✅ MCP server stdio, **stdout sạch** (log ra stderr) | `src/trfc/mcp_server/server.py` |
+| B5 |✅ ReAct loop, `MAX_STEPS=8`, tool lỗi trả `"Error: ..."` **không raise**, parse action an toàn | `src/trfc/agent/loop.py`, `src/trfc/agent/parse.py` |
+| B6 |✅ `call_llm()` bọc duy nhất — retry + timeout + log lỗi HTTP | `src/trfc/agent/llm.py` |
 | B7 | Prompt tách khỏi code | `prompts/*.txt` |
 
 **Định nghĩa "xong":** chạy được trace mục tiêu ở §6 file thiết kế — `search → get_tx → tính → freeze → verify`, và dòng verify cho thấy `frozen=True`, `checked_at` mới hơn `frozen_at`.
