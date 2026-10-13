@@ -109,7 +109,7 @@ async def run(question: str) -> str:
                     messages.append({"role": "user", "content": f"Observation: {parsed}"})
                     continue
 
-                tool_name, tool_args = parsed
+                tool_name, tool_args = parsed.tool, parsed.args
 
                 # 3. Đã có câu trả lời cuối cùng
                 if tool_name is None:
@@ -140,7 +140,7 @@ def main() -> int:
     if len(sys.argv) < 2:
         print('Dùng: python -m trfc.agent.loop "câu hỏi"', file=sys.stderr)
         return 2
-    print(run(" ".join(sys.argv[1:])))
+    print(asyncio.run(run(" ".join(sys.argv[1:]))))
     return 0
 
 
