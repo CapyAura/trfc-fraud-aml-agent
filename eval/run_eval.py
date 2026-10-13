@@ -14,14 +14,15 @@ import asyncio
 import importlib
 import inspect
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 try:  # package execution: python -m eval.run_eval
-    from .metrics import answer_correctness, context_precision, faithfulness, refusal_rate
+    from .metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
 except ImportError:  # direct script execution
-    from metrics import answer_correctness, context_precision, faithfulness, refusal_rate
+    from metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TESTSET = ROOT / "tests" / "testset.jsonl"
@@ -51,6 +52,8 @@ def load_testset(path: Path = DEFAULT_TESTSET) -> list[dict[str, Any]]:
 def validate_testset(cases: list[dict[str, Any]]) -> None:
     if len(cases) != 12:
         raise ValueError(f"Expected exactly 12 cases, found {len(cases)}")
+    if not all(isinstance(case, dict) for case in cases):
+        raise ValueError("Every testset row must be a JSON object")
     ids = [case.get("id") for case in cases]
     if any(not isinstance(value, str) or not value for value in ids) or len(set(ids)) != len(ids):
         raise ValueError("Every case needs a unique non-empty string id")
@@ -61,25 +64,50 @@ def validate_testset(cases: list[dict[str, Any]]) -> None:
             raise ValueError(f"Case {index} missing fields: {', '.join(sorted(missing))}")
         if not isinstance(case["question"], str) or not case["question"].strip():
             raise ValueError(f"Case {case['id']} has an empty question")
-        if case["category"] not in {*EXPECTED_DISTRIBUTION}:
+        if not isinstance(case["category"], str) or case["category"] not in EXPECTED_DISTRIBUTION:
             raise ValueError(f"Case {case['id']} has an unsupported category")
         if not isinstance(case["allowed_to_answer"], bool):
             raise ValueError(f"Case {case['id']} allowed_to_answer must be boolean")
-        if case["expected_outcome"] not in {"answer", "refusal"}:
+        if not isinstance(case["expected_outcome"], str) or case["expected_outcome"] not in {"answer", "refusal"}:
             raise ValueError(f"Case {case['id']} has invalid expected_outcome")
         if case["allowed_to_answer"] != (case["expected_outcome"] == "answer"):
             raise ValueError(f"Case {case['id']} allowed_to_answer conflicts with expected_outcome")
         if not isinstance(case["expected"], dict):
             raise ValueError(f"Case {case['id']} expected must be an object")
-        if not isinstance(case["source_refs"], list) or not all(
-            isinstance(ref, str) for ref in case["source_refs"]
+        expected = case["expected"]
+        expected_values = expected.get("values")
+        if (not isinstance(expected.get("criteria_type"), str)
+                or not isinstance(expected_values, list) or not expected_values
+                or not all(isinstance(value, str) and value.strip() for value in expected_values)):
+            raise ValueError(f"Case {case['id']} expected needs a criteria_type and non-empty string values")
+        if not isinstance(case["source_refs"], list) or not case["source_refs"] or not all(
+            isinstance(ref, str) and re.fullmatch(r"DOC\d{4}", ref, re.IGNORECASE)
+            for ref in case["source_refs"]
         ):
-            raise ValueError(f"Case {case['id']} source_refs must be a list of strings")
+            raise ValueError(f"Case {case['id']} source_refs must contain DOCnnnn identifiers")
+        if not isinstance(case.get("must_cite"), list) or not all(
+            isinstance(ref, str) and re.fullmatch(r"DOC\d{4}", ref, re.IGNORECASE)
+            for ref in case["must_cite"]
+        ):
+            raise ValueError(f"Case {case['id']} must_cite must contain DOCnnnn identifiers")
+        if not set(case["must_cite"]).issubset(case["source_refs"]):
+            raise ValueError(f"Case {case['id']} must_cite must be included in source_refs")
+        if "missing_evidence" in case and (
+            not isinstance(case["missing_evidence"], list)
+            or not all(isinstance(item, str) and item.strip() for item in case["missing_evidence"])
+        ):
+            raise ValueError(f"Case {case['id']} missing_evidence must be a list of non-empty strings")
         if case["category"] == "no_answer":
-            if case["allowed_to_answer"] or case.get("refusal_type") not in {"i", "ii"}:
+            if (case["allowed_to_answer"] or case["expected_outcome"] != "refusal"
+                    or case.get("refusal_type") not in {"i", "ii"}
+                    or expected.get("criteria_type") != "refusal_reason"):
                 raise ValueError(f"Case {case['id']} needs refusal outcome and type i or ii")
-        elif case.get("refusal_type") is not None:
-            raise ValueError(f"Answerable case {case['id']} must not declare refusal_type")
+            if case["refusal_type"] == "ii" and not case.get("missing_evidence"):
+                raise ValueError(f"Case {case['id']} refusal type ii needs missing_evidence")
+        elif (case.get("refusal_type") is not None or not case["allowed_to_answer"]
+              or case["expected_outcome"] != "answer"
+              or expected.get("criteria_type") != "contains_all"):
+            raise ValueError(f"Answerable case {case['id']} must have answer outcome and contains_all criteria")
     counts = {category: sum(case["category"] == category for case in cases)
               for category in EXPECTED_DISTRIBUTION}
     if counts != EXPECTED_DISTRIBUTION:
@@ -148,7 +176,7 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 if row["actual_outcome"] is None:
                     row["actual_outcome"] = "refusal" if result.get("refused") is True else (
                         "answer" if row["actual_answer"] else None)
-                if row["actual_outcome"] not in {"answer", "refusal"}:
+                if not isinstance(row["actual_outcome"], str) or row["actual_outcome"] not in {"answer", "refusal"}:
                     row["status"] = "unscorable"
                     unscorable += 1
                 else:
@@ -160,10 +188,12 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                     "faithfulness": faithfulness(row["actual_answer"], row["contexts"], row["claims"]),
                     "context_precision": context_precision(
                         case["question"], row["contexts"], case["source_refs"]),
-                    "refusal_correctness": row["actual_outcome"] == case["expected_outcome"],
+                    "refusal_correctness": refusal_decision_correctness(
+                        case["allowed_to_answer"], row["actual_outcome"]),
                     "refusal_subtype_correctness": (
                         row["actual_refusal_type"] == case.get("refusal_type")
                         if case.get("refusal_type") in {"i", "ii"}
+                        and isinstance(row["actual_refusal_type"], str)
                         and row["actual_refusal_type"] in {"i", "ii"}
                         and row["actual_outcome"] == "refusal"
                         else None
@@ -178,7 +208,26 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
             except Exception as exc:  # continue so a single case cannot abort the set
                 row["error"] = f"{type(exc).__name__}: {exc}"
                 failed += 1
-            stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+            try:
+                encoded_row = json.dumps(row, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError):
+                if row["status"] == "completed":
+                    completed -= 1
+                elif row["status"] == "unscorable":
+                    unscorable -= 1
+                failed += 1
+                row["status"] = "failed"
+                row["error"] = "SerializationError: adapter result contains non-JSON-serializable data"
+                row["actual_answer"] = None
+                row["actual_outcome"] = None
+                row["actual_refusal_type"] = None
+                row["contexts"] = None
+                row["claims"] = None
+                row["tool_trace"] = None
+                row["usage"] = None
+                row["metrics"] = {}
+                encoded_row = json.dumps(row, ensure_ascii=False, allow_nan=False)
+            stream.write(encoded_row + "\n")
     refusal_summary = refusal_rate(refusal_rows)
     return {"completed": completed, "failed": failed, "unscorable": unscorable,
             "refusal_summary": refusal_summary}

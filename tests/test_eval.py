@@ -5,8 +5,10 @@ import sys
 
 import pytest
 
-from eval.metrics import answer_correctness, context_precision, faithfulness, refusal_rate
-from eval.report import CSV_COLUMNS, generate_report
+from eval.metrics import (
+    answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate,
+)
+from eval.report import CSV_COLUMNS, csv_rows, generate_report, load_results
 from eval.run_eval import DEFAULT_TESTSET, _usage_or_none, load_testset, main, validate_testset
 
 
@@ -24,6 +26,24 @@ def test_testset_rejects_invalid_distribution():
         validate_testset(cases[:-1])
 
 
+def test_testset_rejects_malformed_expected_values_and_document_ids():
+    cases = load_testset(DEFAULT_TESTSET)
+    malformed_expected = [dict(case) for case in cases]
+    malformed_expected[0] = {**cases[0], "expected": {"criteria_type": "contains_all", "values": [7]}}
+    with pytest.raises(ValueError, match="expected needs"):
+        validate_testset(malformed_expected)
+
+    malformed_source = [dict(case) for case in cases]
+    malformed_source[0] = {**cases[0], "source_refs": ["DOC00070"]}
+    with pytest.raises(ValueError, match="source_refs"):
+        validate_testset(malformed_source)
+
+    misplaced_citation = [dict(case) for case in cases]
+    misplaced_citation[0] = {**cases[0], "must_cite": ["DOC0008"]}
+    with pytest.raises(ValueError, match="must_cite must be included"):
+        validate_testset(misplaced_citation)
+
+
 def test_faithfulness_literal_claim_support_and_unscorable_inputs():
     assert faithfulness("Hạn mức là 500.000.000 VND", ["DOC0007 Hạn mức là 500.000.000 VND"],
                         ["Hạn mức là 500.000.000 VND"]) == 1.0
@@ -33,6 +53,8 @@ def test_faithfulness_literal_claim_support_and_unscorable_inputs():
     assert faithfulness("", ["context"], ["claim"]) is None
     assert faithfulness("answer", [], ["claim"]) is None
     assert faithfulness("answer", ["context"]) is None
+    assert faithfulness("answer", ["context"], [None]) is None
+    assert faithfulness("answer", "context", ["answer"]) is None
 
 
 def test_context_precision_uses_explicit_document_references():
@@ -41,6 +63,9 @@ def test_context_precision_uses_explicit_document_references():
     assert context_precision("q", ["[DOC00070] wrong prefix"], ["DOC0007"]) is None
     assert context_precision("q", [], ["DOC0007"]) is None
     assert context_precision("q", ["[DOC0007]"], None) is None
+    assert context_precision("q", ["[DOC0007]"], ["DOC00070"]) is None
+    assert context_precision("q", ["[DOC0007] and [DOC0008]"], ["DOC0007"]) is None
+    assert context_precision("q", ["[DOC0007]"] , [None]) is None
 
 
 def test_answer_correctness_and_missing_values():
@@ -58,18 +83,35 @@ def test_refusal_decision_and_subtype_metrics():
         {"allowed_to_answer": False, "actual_outcome": "refusal", "expected_refusal_type": "ii", "actual_refusal_type": "i"},
         {"allowed_to_answer": True, "actual_outcome": "refusal"},
         {"allowed_to_answer": False, "actual_outcome": "refusal", "expected_refusal_type": "ii", "actual_refusal_type": None},
+        {"allowed_to_answer": False, "actual_outcome": "answer", "expected_refusal_type": "i", "actual_refusal_type": "i"},
         {"allowed_to_answer": False, "actual_outcome": None},
     ])
     assert summary["correct"] == 3
-    assert summary["total"] == 4
-    assert summary["rate"] == pytest.approx(3 / 4)
+    assert summary["total"] == 5
+    assert summary["rate"] == pytest.approx(3 / 5)
     assert summary["subtype_correct"] == 1
     assert summary["subtype_total"] == 2
     assert summary["subtype_rate"] == 0.5
     assert summary["by_type"]["ii"] == {
         "correct": 0, "total": 2, "scored": 1, "unscorable": 1,
     }
+    assert summary["by_type"]["i"] == {
+        "correct": 1, "total": 2, "scored": 1, "unscorable": 1,
+    }
     assert summary["unscorable"] == 1
+    assert refusal_decision_correctness(False, None) is None
+    assert refusal_decision_correctness(False, "answer") is False
+
+
+def test_report_does_not_score_refusal_subtype_when_no_refusal_occurred():
+    row = {
+        "allowed_to_answer": False, "actual_outcome": "answer",
+        "expected_refusal_type": "i", "actual_refusal_type": "i",
+        "metrics": {"refusal_correctness": False, "refusal_subtype_correctness": None},
+    }
+    flattened = csv_rows([row])[0]
+    assert flattened["refusal_correctness"] is False
+    assert flattened["refusal_subtype_correctness"] == "Unscorable"
 
 
 def test_usage_missing_or_invalid_is_not_zero():
@@ -92,10 +134,10 @@ def test_csv_report_columns_and_missing_scores_not_zero(tmp_path):
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert list(rows[0]) == CSV_COLUMNS
-    assert rows[0]["faithfulness"] == ""
+    assert rows[0]["faithfulness"] == "Unscorable"
     assert rows[0]["prompt_tokens"] == ""
     assert rows[0]["refusal_correctness"] == "True"
-    assert "Unscored: 1" in faith_chart.read_text(encoding="utf-8")
+    assert "Unscorable: 1" in faith_chart.read_text(encoding="utf-8")
     assert "No evaluation data" not in refusal_chart.read_text(encoding="utf-8")
 
 
@@ -117,7 +159,38 @@ def test_report_distinguishes_rows_with_no_scores_from_empty_data(tmp_path):
     _, faith_chart, _ = generate_report(source, tmp_path / "out")
     svg = faith_chart.read_text(encoding="utf-8")
     assert "No metric scores available" in svg
+    assert "Unscorable: 1" in svg
     assert "Question ID" in svg
+
+
+def test_report_labels_missing_and_unscorable_values_and_escapes_csv_svg(tmp_path):
+    source = tmp_path / "evaluation.jsonl"
+    source.write_text("\n".join([
+        json.dumps({
+            "question_id": 'q<&,"1', "category": "retrieval", "status": "completed",
+            "metrics": {}, "usage": None,
+        }),
+        json.dumps({
+            "question_id": "q2", "category": "retrieval", "status": "completed",
+            "metrics": {"faithfulness": None}, "usage": None,
+        }),
+    ]) + "\n", encoding="utf-8")
+    csv_path, faith_chart, _ = generate_report(source, tmp_path / "out")
+    with csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[0]["question_id"] == 'q<&,"1'
+    assert rows[0]["faithfulness"] == "Missing"
+    assert rows[1]["faithfulness"] == "Unscorable"
+    svg = faith_chart.read_text(encoding="utf-8")
+    assert "Missing: 1" in svg and "Unscorable: 1" in svg
+    assert 'q&lt;&amp;,"1' in svg
+
+
+def test_report_rejects_invalid_jsonl_with_path_and_line(tmp_path):
+    source = tmp_path / "bad.jsonl"
+    source.write_text('{}\n{bad json}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Invalid JSON at .*bad.jsonl:2"):
+        load_results(source)
 
 
 def test_dry_run_does_not_load_adapter_or_write_evaluation(tmp_path, monkeypatch, capsys):
@@ -149,6 +222,41 @@ def test_adapter_evaluation_records_missing_usage_and_errors(tmp_path):
     assert summary["completed"] == 1 and summary["failed"] == 1
     assert rows[0]["usage"] is None
     assert rows[1]["error"].startswith("RuntimeError:")
+
+
+def test_unknown_decision_is_unscorable_not_incorrect(tmp_path):
+    import asyncio
+    from eval.run_eval import evaluate
+
+    case = load_testset(DEFAULT_TESTSET)[8]
+
+    async def adapter(_case):
+        return {"answer": None, "actual_outcome": None}
+
+    summary = asyncio.run(evaluate([case], adapter, tmp_path / "results.jsonl"))
+    row = json.loads((tmp_path / "results.jsonl").read_text(encoding="utf-8"))
+    assert summary["unscorable"] == 1
+    assert row["metrics"]["refusal_correctness"] is None
+
+
+def test_nonserializable_case_fails_without_dropping_later_case(tmp_path):
+    import asyncio
+    from eval.run_eval import evaluate
+
+    cases = load_testset(DEFAULT_TESTSET)[:2]
+
+    async def adapter(case):
+        if case["id"] == "q01":
+            return {"answer": "x", "actual_outcome": "answer", "tool_trace": object()}
+        return {"answer": "x", "actual_outcome": "answer"}
+
+    output = tmp_path / "results.jsonl"
+    summary = asyncio.run(evaluate(cases, adapter, output))
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert summary["failed"] == 1 and summary["completed"] == 1
+    assert rows[0]["status"] == "failed"
+    assert rows[0]["error"].startswith("SerializationError:")
+    assert rows[1]["question_id"] == "q02"
 
 
 def test_async_adapter_timeout_is_recorded_and_later_case_continues(tmp_path):

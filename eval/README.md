@@ -40,7 +40,7 @@ python -m eval.run_eval --dry-run
   `contains_all` cases. It is deterministic and intentionally conservative.
 - **Correct refusal/decision rate:** checks answer versus refusal against
   `allowed_to_answer`; refusal subtype is scored separately only when the runtime
-  reports an actual type `i`/`ii`. Missing outcome/type is not silently scored.
+  reports an actual refusal and its type `i`/`ii`. Missing outcome/type is not silently scored.
 
 No LLM judge is used. These metrics must not be presented as RAGAS scores or as
 semantic proof. The project course brief mentions answer relevance as a general
@@ -93,8 +93,9 @@ python -m eval.report --input logs/evaluation.jsonl --output-dir eval/reports
 ```
 
 The script reads actual JSONL and writes a per-question CSV plus faithfulness and
-refusal-decision SVG charts. Missing/unscorable values remain blank/N/A; failed
-questions are not converted to zero. Async adapter calls have a configurable
+refusal-decision SVG charts. Missing metric keys are labelled Missing; explicit
+null or invalid metric values are labelled Unscorable; answerable-case refusal
+subtypes are N/A. Failed questions are not converted to zero. Async adapter calls have a configurable
 per-case timeout; synchronous adapters must set their own I/O timeout. SVG generation uses only the Python
 standard library, so no chart dependency is added. Empty JSONL yields a header-only
 CSV and charts explicitly labelled as having no evaluation data.
@@ -157,7 +158,81 @@ undeclared `groq` package are needed for the current LLM wrapper.
 Report generation reads an existing evaluation JSONL; it does not run the
 agent. It creates `evaluation.csv`, `faithfulness.svg`, and
 `refusal_correctness.svg` under the selected output directory. Empty data gives
-a header-only CSV and charts labelled “No evaluation data”; absent metric or
-usage values remain blank/N/A, not zero. No genuine run logs are included, so
+a header-only CSV and charts labelled “No evaluation data”. A metric key absent
+from a row is labelled `Missing`; an explicit JSON `null` or invalid metric is
+labelled `Unscorable`; a valid measured value is shown as its score. Refusal
+subtype is `N/A` for answerable questions. Missing usage remains blank rather
+than being converted to zero. CSV fields use standard CSV escaping, and malformed
+JSONL is rejected with its file and line number. No genuine run logs are included, so
 do not treat `make demo`, a real evaluation, or report values as verified until
 the A/B integration and real scenarios have run.
+
+## C4 trace validation and genuine-run evidence
+
+`python -m eval.log_validation --kind case logs` checks evaluation case rows
+written by `eval.run_eval`. Every JSON object has these required keys:
+`timestamp` (timezone-aware ISO-8601), `question_id`, `category`,
+`expected_outcome`, `allowed_to_answer`, `expected_refusal_type`, `expected`,
+`source_refs`, `actual_answer`, `actual_outcome`, `actual_refusal_type`,
+`contexts`, `claims`, `tool_trace`, `usage`, `metrics`, `error`, and `status`.
+`status` is `completed`, `failed`, or `unscorable`; a completed row has
+`actual_outcome` equal to `answer` or `refusal`. Case-level `usage` is either
+`null` (unavailable) or an object with non-negative integer `calls`,
+`prompt_tokens`, `completion_tokens`, and `max_prompt`. The evaluator passes
+`tool_trace` through from the adapter and does not impose a step-event schema.
+
+C4's requested step trace is a separate record type. Validate it with
+`python -m eval.log_validation --kind event path\to\run.jsonl`. Each line must
+be a JSON object containing `record_type="step_event"`, timezone-aware ISO
+`timestamp`, `run_id`, `question_id`, `scenario` (`freeze`, `flag`, or
+`refusal`), `execution_mode` (`real`, `mock`, `dry_run`, `unit_test`, or
+`synthetic`), positive integer `step`, non-empty `tool`, object `args`, a
+non-null `result`, and `usage` with the four non-negative integer counters
+above. The current A/B agent does not emit these events; this validator defines
+and checks the C4 capture contract, it does not create events. Both modes report
+invalid JSON/schema with file and line number. A successful validation means
+only that the schema is valid. A declared `execution_mode="real"` is not proof
+of authenticity.
+
+### Genuine scenario collection runbook (requires A/B integration)
+
+Do not run the write scenarios against the repository's default
+`data/state.db`: `freeze_account_temporarily` and `flag_suspicious_tx` mutate
+SQLite state, and the current code has no supported state-database override.
+First obtain an isolated disposable runtime/database and an A/B adapter that
+returns structured per-step events and usage without printing secrets. Retain
+the original JSONL files unchanged; do not convert test fixtures or dry-run
+output into real-run logs.
+
+For each scenario, record a unique run ID, scenario, case/question ID, UTC
+timestamps, step index, exact tool name and redacted arguments, result, and
+usage. Also retain the code revision, model/service name and version (never its
+key), disposable environment/database identifier, a pre-run baseline, and
+post-run verification output. Redact customer data and credentials before
+retention. Hash the final log file if an integrity check is needed. Run the
+event validator on each retained file; separately review execution provenance.
+
+1. **Freeze:** in the disposable database, capture
+   `get_account_risk_status(account_id)` before the run. Ask the agent to assess
+   a documented high-risk account and, if justified, freeze it. The trace must
+   show the actual `freeze_account_temporarily(account_id, reason)` call and
+   result, followed by a read-back showing the account frozen. Preserve the
+   before/after verification and tool events. Do not use the default database.
+2. **Flag:** capture the account/transaction state before the run. Ask the
+   agent to assess a documented suspicious transaction. The trace must show
+   `flag_suspicious_tx(tx_id, reason)` and a subsequent
+   `get_account_risk_status(account_id)` read-back whose `flagged_tx_ids`
+   includes that transaction. Preserve before/after verification.
+3. **Refusal:** use a test case whose evidence is explicitly insufficient or
+   outside scope. Retain the prompt and final refusal, its actual subtype (`i`
+   or `ii`), and a trace showing no freeze/flag write tool was called. This
+   scenario must not change state.
+
+At present all three genuine scenarios are blocked: `run_eval` has no bundled
+adapter; `src/trfc/agent/loop.py` returns only a final string, discards LLM
+usage, and does not return structured tool events; its CLI does not await the
+async `run()`. In addition, `src/trfc/tools/state.py` hardcodes the default
+database path. A/B must provide an awaitable working entry point, structured
+per-step events with usage, and a configurable isolated database/runtime before
+freeze/flag runs can be safely performed. Refusal still requires the structured
+adapter and working entry point. No real scenario logs are currently present.
