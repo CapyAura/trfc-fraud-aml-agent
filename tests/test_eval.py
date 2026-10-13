@@ -9,7 +9,13 @@ from eval.metrics import (
     answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate,
 )
 from eval.report import CSV_COLUMNS, csv_rows, generate_report, load_results
-from eval.run_eval import DEFAULT_TESTSET, _usage_or_none, load_testset, main, validate_testset
+from eval.run_eval import DEFAULT_TESTSET, _actual_outcome, _usage_or_none, load_testset, main, validate_testset
+
+
+@pytest.fixture(autouse=True)
+def _isolated_eval_database(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRFC_STATE_DB", str(tmp_path / "eval-state.db"))
+    monkeypatch.setenv("TRFC_REQUIRE_ISOLATED_DB", "1")
 
 
 def test_testset_is_valid_with_required_distribution():
@@ -120,6 +126,19 @@ def test_usage_missing_or_invalid_is_not_zero():
         "calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "max_prompt": 0,
     }
     assert _usage_or_none({"calls": True, "prompt_tokens": 1, "completion_tokens": 0, "max_prompt": 1}) is None
+
+
+def test_usage_preserves_actual_call_count_when_provider_tokens_are_unavailable():
+    partial = {"calls": 2, "prompt_tokens": None, "completion_tokens": None, "max_prompt": None}
+    assert _usage_or_none(partial) == partial
+    assert _usage_or_none({**partial, "calls": True}) is None
+    assert _usage_or_none({**partial, "max_prompt": 1}) is None
+
+
+def test_actual_outcome_is_not_guessed_from_answer_text():
+    assert _actual_outcome({"answer": "some text"}) is None
+    assert _actual_outcome({"refused": False, "answer": "some text"}) == "answer"
+    assert _actual_outcome({"actual_outcome": "refusal", "answer": "some text"}) == "refusal"
 
 
 def test_csv_report_columns_and_missing_scores_not_zero(tmp_path):
@@ -271,6 +290,42 @@ def test_async_adapter_timeout_is_recorded_and_later_case_continues(tmp_path):
         return {"answer": "answer", "actual_outcome": "answer"}
 
     summary = asyncio.run(evaluate(cases, adapter, tmp_path / "results.jsonl", case_timeout=0.01))
+    rows = [json.loads(line) for line in (tmp_path / "results.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert summary["failed"] == 1 and summary["completed"] == 1
+    assert rows[0]["error"].startswith("TimeoutError:")
+    assert rows[1]["status"] == "completed"
+
+
+def test_blocking_provider_worker_does_not_block_timeout_or_later_case(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+
+    from eval.run_eval import evaluate
+    from trfc.agent import llm
+
+    cases = load_testset(DEFAULT_TESTSET)[:2]
+    release_worker = threading.Event()
+
+    def blocking_provider(_messages, _tools=None):
+        release_worker.wait(timeout=2)
+        return object(), None
+
+    monkeypatch.setattr(llm, "call_llm", blocking_provider)
+    monkeypatch.setenv("TRFC_REQUIRE_ISOLATED_DB", "1")
+    monkeypatch.setenv("TRFC_STATE_DB", str(tmp_path / "isolated.db"))
+
+    async def adapter(case):
+        if case["id"] == "q01":
+            await llm.call_llm_async([])
+        return {"answer": "answer", "actual_outcome": "answer"}
+
+    async def run():
+        # Let the provider worker finish after the first timeout. This also
+        # prevents asyncio's executor shutdown from waiting for its full bound.
+        asyncio.get_running_loop().call_later(0.1, release_worker.set)
+        return await evaluate(cases, adapter, tmp_path / "results.jsonl", case_timeout=0.01)
+
+    summary = asyncio.run(run())
     rows = [json.loads(line) for line in (tmp_path / "results.jsonl").read_text(encoding="utf-8").splitlines()]
     assert summary["failed"] == 1 and summary["completed"] == 1
     assert rows[0]["error"].startswith("TimeoutError:")

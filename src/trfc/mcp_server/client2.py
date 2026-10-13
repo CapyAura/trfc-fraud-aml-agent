@@ -133,11 +133,20 @@ def _display_result(result: Any) -> None:
 def _server_parameters(command: str, server_args: list[str] | None) -> Any:
     """Build parameters using the same MCP stdio SDK used by the agent."""
     from mcp.client.stdio import StdioServerParameters
+    from trfc.tools.state import DB_PATH_ENV, REQUIRE_ISOLATED_DB_ENV, resolve_db_path
 
     env = {"PYTHONPATH": str(ROOT_DIR / "src")}
     existing_pythonpath = os.environ.get("PYTHONPATH")
     if existing_pythonpath:
         env["PYTHONPATH"] += os.pathsep + existing_pythonpath
+    for name in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"):
+        if name in os.environ:
+            env[name] = os.environ[name]
+    if DB_PATH_ENV in os.environ:
+        configured_path = os.environ[DB_PATH_ENV]
+        env[DB_PATH_ENV] = str(resolve_db_path()) if configured_path.strip() else configured_path
+    if REQUIRE_ISOLATED_DB_ENV in os.environ:
+        env[REQUIRE_ISOLATED_DB_ENV] = os.environ[REQUIRE_ISOLATED_DB_ENV]
     return StdioServerParameters(
         command=command,
         args=server_args if server_args is not None else ["-m", "trfc.mcp_server.server"],

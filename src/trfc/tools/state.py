@@ -8,6 +8,7 @@ Chạy trực tiếp để tạo + seed DB và tự kiểm:
     python -m trfc.tools.state
 """
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,8 @@ from pathlib import Path
 from trfc.config import ROOT
 
 DB_PATH = ROOT / "data" / "state.db"
+DB_PATH_ENV = "TRFC_STATE_DB"
+REQUIRE_ISOLATED_DB_ENV = "TRFC_REQUIRE_ISOLATED_DB"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -58,20 +61,98 @@ _SEED_TXS = [
 ]
 
 
-def connect(path: Path = DB_PATH) -> sqlite3.Connection:
-    """Mở connection, tạo schema nếu chưa có."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+def resolve_db_path(path: Path | str | None = None) -> Path:
+    """Resolve the one database path used by all tool connections.
+
+    Explicit arguments take precedence (notably for seeding a test database),
+    followed by ``TRFC_STATE_DB`` and then the historical project default.
+    """
+    if path is not None:
+        configured = path
+    elif DB_PATH_ENV in os.environ:
+        configured = os.environ[DB_PATH_ENV]
+        if not configured.strip():
+            raise ValueError(f"{DB_PATH_ENV} must not be empty")
+    else:
+        configured = DB_PATH
+    return Path(configured).expanduser().resolve()
+
+
+class _WriteBlockedError(RuntimeError):
+    """Actionable validation rejection that is safe to return to tool callers."""
+
+
+def require_isolated_database_for_writes(path: Path | str | None = None) -> None:
+    """Require the configured isolated database before any write operation.
+
+    The optional path is used by ``reset``; it must agree with the environment
+    selected for the rest of the tools and cannot override that configuration.
+    This validation never opens or creates a SQLite connection.
+    """
+    if os.environ.get(REQUIRE_ISOLATED_DB_ENV, "").strip().lower() not in {"1", "true", "yes"}:
+        raise _WriteBlockedError(
+            f"Write operation blocked: set {REQUIRE_ISOLATED_DB_ENV}=1 to enable isolated writes"
+        )
+
+    configured = os.environ.get(DB_PATH_ENV)
+    if not isinstance(configured, str) or not configured.strip():
+        raise _WriteBlockedError(
+            f"Write operation blocked: {DB_PATH_ENV} must name an isolated database"
+        )
+
+    try:
+        configured_raw = Path(configured).expanduser()
+        if not configured_raw.is_absolute():
+            raise _WriteBlockedError(
+                f"Write operation blocked: {DB_PATH_ENV} must be an absolute path"
+            )
+        configured_path = resolve_db_path()
+
+        if path is not None:
+            requested_raw = Path(path).expanduser()
+            if not requested_raw.is_absolute():
+                raise _WriteBlockedError("Write operation blocked: requested database path is not absolute")
+            requested_path = resolve_db_path(path)
+            if requested_path != configured_path:
+                raise _WriteBlockedError(
+                    "Write operation blocked: requested database path does not match "
+                    f"{DB_PATH_ENV}"
+                )
+
+        default_path = DB_PATH.resolve()
+        if configured_path == default_path:
+            raise _WriteBlockedError(
+                "Write operation blocked: configured database resolves to the default state.db"
+            )
+        if configured_path.exists() and not configured_path.is_file():
+            raise _WriteBlockedError(
+                f"Write operation blocked: {DB_PATH_ENV} must identify a SQLite file path"
+            )
+    except _WriteBlockedError:
+        raise
+    except Exception:
+        raise RuntimeError(
+            "Write operation blocked: configured database path could not be validated"
+        ) from None
+
+
+def connect(path: Path | str | None = None) -> sqlite3.Connection:
+    """Open a connection, creating the schema at the resolved database path."""
+    resolved_path = resolve_db_path(path)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(resolved_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     return conn
 
 
-def reset(path: Path = DB_PATH) -> None:
+def reset(path: Path | str | None = None) -> None:
     """Xoá DB rồi seed lại. Gọi trước mỗi lần eval để log tái lập được."""
-    if path.exists():
-        path.unlink()
-    conn = connect(path)
+    resolved_path = resolve_db_path(path)
+    require_isolated_database_for_writes(resolved_path)
+    if resolved_path.exists():
+        resolved_path.unlink()
+    conn = connect(resolved_path)
     conn.executemany("INSERT INTO accounts (account_id, ekyc_tier) VALUES (?, ?)", _SEED_ACCOUNTS)
     conn.executemany(
         "INSERT INTO transactions (tx_id, account_id, amount, currency, ts, country, method, location)"

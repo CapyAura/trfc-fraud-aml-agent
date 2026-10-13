@@ -35,8 +35,50 @@ def _timestamp(value: Any) -> bool:
 def _valid_usage(value: Any, nullable: bool = False) -> bool:
     if value is None:
         return nullable
-    return (isinstance(value, dict) and USAGE_KEYS == value.keys()
-            and all(type(value[key]) is int and value[key] >= 0 for key in USAGE_KEYS))
+    return (
+        isinstance(value, dict)
+        and USAGE_KEYS == value.keys()
+        and type(value["calls"]) is int
+        and value["calls"] >= 0
+        and all(value[key] is None or (type(value[key]) is int and value[key] >= 0)
+                for key in USAGE_KEYS - {"calls"})
+        and (value["prompt_tokens"] is not None or value["max_prompt"] is None)
+    )
+
+
+def _valid_tool_trace(value: Any) -> bool:
+    """Accept unavailable traces or lists of records emitted by the runtime."""
+    if value is None:
+        return True
+    if not isinstance(value, list):
+        return False
+    required = {
+        "step", "tool_call_id", "tool_name", "arguments",
+        "result", "status", "error",
+    }
+    for event in value:
+        if not isinstance(event, dict) or not required.issubset(event):
+            return False
+        if type(event["step"]) is not int or event["step"] < 1:
+            return False
+        if (not isinstance(event["tool_call_id"], str)
+                or not event["tool_call_id"].strip()
+                or not isinstance(event["tool_name"], str)
+                or not event["tool_name"].strip()):
+            return False
+        if event["arguments"] is not None and not isinstance(event["arguments"], dict):
+            return False
+        if not isinstance(event["result"], str):
+            return False
+        if event["status"] not in ("completed", "error"):
+            return False
+        if event["error"] is not None and not isinstance(event["error"], str):
+            return False
+        if event["status"] == "error" and not event["error"]:
+            return False
+        if event["status"] == "completed" and event["error"] is not None:
+            return False
+    return True
 
 
 def validate_case(row: dict[str, Any]) -> list[str]:
@@ -60,6 +102,12 @@ def validate_case(row: dict[str, Any]) -> list[str]:
         errors.append("status must be completed, failed, or unscorable")
     if row.get("status") == "completed" and row.get("actual_outcome") not in ("answer", "refusal"):
         errors.append("completed row needs actual_outcome answer or refusal")
+    if row.get("status") == "unscorable" and row.get("actual_outcome") is not None:
+        errors.append("unscorable row must have unavailable actual_outcome")
+    if row.get("status") == "failed" and (
+        not isinstance(row.get("error"), str) or not row["error"].strip()
+    ):
+        errors.append("failed row needs a non-empty runtime error")
     if not isinstance(row.get("expected"), dict):
         errors.append("expected must be an object")
     if not isinstance(row.get("source_refs"), list):
@@ -71,6 +119,8 @@ def validate_case(row: dict[str, Any]) -> list[str]:
         errors.append("actual_outcome must be null, answer, or refusal")
     if row.get("actual_refusal_type") not in (None, "i", "ii"):
         errors.append("actual_refusal_type must be null, i, or ii")
+    if row.get("actual_refusal_type") is not None and row.get("actual_outcome") != "refusal":
+        errors.append("actual_refusal_type is only applicable to a refusal outcome")
     for field in ("contexts", "claims"):
         value = row.get(field)
         if value is not None and (not isinstance(value, list)
@@ -79,10 +129,12 @@ def validate_case(row: dict[str, Any]) -> list[str]:
     if not isinstance(row.get("metrics"), dict):
         errors.append("metrics must be an object")
     if not _valid_usage(row.get("usage"), nullable=True):
-        errors.append("usage must be null or contain non-negative integer counters")
+        errors.append("usage must be null or contain calls and non-negative/unknown token counters")
     trace = row.get("tool_trace")
-    if trace is not None and not isinstance(trace, list):
-        errors.append("tool_trace must be null or a list")
+    if not _valid_tool_trace(trace):
+        errors.append("tool_trace must be null or a list of valid captured tool-call records")
+    if row.get("status") == "failed" and trace == []:
+        errors.append("failed row cannot claim an empty completed tool trace")
     return errors
 
 
@@ -114,7 +166,7 @@ def validate_event(row: dict[str, Any]) -> list[str]:
     if row.get("result") is None:
         errors.append("result must not be null")
     if not _valid_usage(row.get("usage")):
-        errors.append("usage must contain non-negative integer counters")
+        errors.append("usage must contain calls and non-negative/unknown token counters")
     return errors
 
 

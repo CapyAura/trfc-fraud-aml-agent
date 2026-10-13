@@ -3,8 +3,9 @@
 Adapter contract: ``module:function``; callable accepts one test-case dict and
 returns a dict with `answer`, optional `actual_outcome`, `actual_refusal_type`,
 `contexts` (list[str]), `claims` (list[str]), `tool_trace`, and `usage`. Async
-callables are supported. No built-in adapter is provided until A/B stabilize
-the runtime result contract.
+callables are supported. The built-in `eval.agent_adapter:run_case` passes
+through fields explicitly supplied by the runtime; unavailable metadata remains
+unavailable and is never inferred from answer text.
 """
 
 from __future__ import annotations
@@ -21,8 +22,12 @@ from typing import Any
 
 try:  # package execution: python -m eval.run_eval
     from .metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
+    from .database_isolation import require_isolated_database
+    from .redaction import redact_for_log
 except ImportError:  # direct script execution
     from metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
+    from database_isolation import require_isolated_database
+    from redaction import redact_for_log
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TESTSET = ROOT / "tests" / "testset.jsonl"
@@ -136,15 +141,33 @@ def _usage_or_none(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     keys = ("calls", "prompt_tokens", "completion_tokens", "max_prompt")
-    if not all(key in value and type(value[key]) is int and value[key] >= 0 for key in keys):
+    if (not all(key in value for key in keys)
+            or type(value["calls"]) is not int or value["calls"] < 0
+            or any(value[key] is not None and
+                   (type(value[key]) is not int or value[key] < 0)
+                   for key in keys[1:])
+            or (value["prompt_tokens"] is None and value["max_prompt"] is not None)):
         return None
     return {key: value[key] for key in keys}
+
+
+def _actual_outcome(result: dict[str, Any]) -> str | None:
+    outcome = result.get("actual_outcome")
+    if isinstance(outcome, str) and outcome in {"answer", "refusal"}:
+        return outcome
+    refused = result.get("refused")
+    if type(refused) is bool:
+        return "refusal" if refused else "answer"
+    return None
 
 
 async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                    case_timeout: float = 180.0) -> dict[str, Any]:
     if case_timeout <= 0:
         raise ValueError("case_timeout must be positive")
+    # Adapters may invoke the write-capable agent tools. Fail before creating
+    # output or calling an adapter unless the isolated DB contract is explicit.
+    require_isolated_database()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = failed = unscorable = 0
     refusal_rows = []
@@ -167,15 +190,14 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 if not isinstance(result, dict):
                     raise TypeError("Adapter must return a dict")
                 row["actual_answer"] = result.get("answer")
-                row["actual_outcome"] = result.get("actual_outcome")
+                row["actual_outcome"] = _actual_outcome(result)
                 row["actual_refusal_type"] = result.get("actual_refusal_type")
                 row["contexts"] = result.get("contexts")
                 row["claims"] = result.get("claims")
                 row["tool_trace"] = result.get("tool_trace")
                 row["usage"] = _usage_or_none(result.get("usage"))
-                if row["actual_outcome"] is None:
-                    row["actual_outcome"] = "refusal" if result.get("refused") is True else (
-                        "answer" if row["actual_answer"] else None)
+                if result.get("status") == "failed":
+                    raise RuntimeError(result.get("error") or "Adapter reported a failed runtime execution")
                 if not isinstance(row["actual_outcome"], str) or row["actual_outcome"] not in {"answer", "refusal"}:
                     row["status"] = "unscorable"
                     unscorable += 1
@@ -209,7 +231,7 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 row["error"] = f"{type(exc).__name__}: {exc}"
                 failed += 1
             try:
-                encoded_row = json.dumps(row, ensure_ascii=False, allow_nan=False)
+                encoded_row = json.dumps(redact_for_log(row), ensure_ascii=False, allow_nan=False)
             except (TypeError, ValueError):
                 if row["status"] == "completed":
                     completed -= 1
@@ -226,7 +248,7 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 row["tool_trace"] = None
                 row["usage"] = None
                 row["metrics"] = {}
-                encoded_row = json.dumps(row, ensure_ascii=False, allow_nan=False)
+                encoded_row = json.dumps(redact_for_log(row), ensure_ascii=False, allow_nan=False)
             stream.write(encoded_row + "\n")
     refusal_summary = refusal_rate(refusal_rows)
     return {"completed": completed, "failed": failed, "unscorable": unscorable,
@@ -251,6 +273,10 @@ def main() -> int:
         return 0
     if not args.agent_adapter:
         parser.error("Real evaluation is unavailable: supply --agent-adapter module:function after A/B stabilize the runtime result interface. No dummy answers are used.")
+    try:
+        require_isolated_database()
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         adapter = _load_adapter(args.agent_adapter)
     except Exception as exc:

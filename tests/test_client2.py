@@ -3,6 +3,8 @@
 from contextlib import asynccontextmanager
 from contextlib import redirect_stdout
 from io import StringIO
+import os
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -165,6 +167,37 @@ class Client2Tests(unittest.TestCase):
                         run_immediate(client2.run_client("lookup", {"key": "x"}))
             self.assertTrue(session.closed)
             self.assertTrue(session.transport_closed)
+
+    def test_launcher_receives_isolated_database_environment(self):
+        from trfc.tools import state
+
+        database = Path.cwd() / ".test-tmp" / "client-launcher-state.db"
+        self.enterContext(patch.dict(os.environ, {
+            state.DB_PATH_ENV: str(database),
+            state.REQUIRE_ISOLATED_DB_ENV: "1",
+        }))
+        captured = {}
+        @asynccontextmanager
+        async def fake_stdio(params):
+            captured["params"] = params
+            yield "read", "write"
+
+        class FakeClientSession(FakeSession):
+            def __init__(self, *_streams):
+                super().__init__()
+
+        with (
+            patch("mcp.client.stdio.stdio_client", fake_stdio),
+            patch("mcp.client.session.ClientSession", FakeClientSession),
+            patch.object(client2, "_display_tools"),
+            patch.object(client2, "_display_result"),
+        ):
+            run_immediate(client2.run_client("lookup", {"key": "x"}))
+
+        launched_env = captured["params"].env
+        self.assertEqual(launched_env[state.DB_PATH_ENV], str(database.resolve()))
+        self.assertEqual(launched_env[state.REQUIRE_ISOLATED_DB_ENV], "1")
+        self.assertNotIn("GROQ_API_KEY", launched_env)
 
     def test_malformed_json_and_non_object_arguments_rejected(self):
         with self.assertRaisesRegex(client2.ClientError, "Invalid JSON"):
