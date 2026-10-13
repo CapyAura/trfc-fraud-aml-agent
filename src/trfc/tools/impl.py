@@ -27,8 +27,8 @@ def get_transactions(account_id: str, date_from: str, date_to: str) -> list[Tran
     try:
         conn = connect()
 
-        start_ts = f"{date_from} T00:00:00"
-        end_ts = f"{date_to} T23:59:59"
+        start_ts = f"{date_from}T00:00:00"
+        end_ts = f"{date_to}T23:59:59"
 
         query = """
             SELECT tx_id, account_id, amount, currency, ts, country, method, location
