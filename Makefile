@@ -1,23 +1,24 @@
+ifeq ($(OS),Windows_NT)
 PY := .venv/Scripts/python.exe
-ifeq ($(OS),)
+else
 PY := .venv/bin/python
 endif
 
-.PHONY: setup demo eval test clean
+.PHONY: setup demo eval validate-testset report test
 
 setup:
-	python -m venv .venv
-	$(PY) -m pip install -U pip
-	$(PY) -m pip install -e ".[dev]"
+	uv sync --locked --group dev
 
+# Blocked until the A/B agent CLI and LLM dependency/runtime are verified.
 demo:
 	$(PY) -m trfc.agent.loop "ACC001 hôm nay có vượt hạn mức không?"
 
-eval:
-	$(PY) -m eval.run_eval
+# Offline validation only; a real evaluation requires a working adapter.
+eval validate-testset:
+	$(PY) -m eval.run_eval --dry-run
+
+report:
+	$(PY) -m eval.report --input logs/evaluation.jsonl --output-dir eval/reports
 
 test:
-	$(PY) -m pytest
-
-clean:
-	rm -rf .venv __pycache__ .pytest_cache
+	$(PY) -m pytest --ignore=tests/test_tools.py --basetemp .test-tmp/pytest

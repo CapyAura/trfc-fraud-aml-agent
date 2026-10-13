@@ -20,3 +20,6 @@ data/*.db
 # OS / editor noise
 Thumbs.db
 Desktop.ini
+
+.test-tmp/
+src/trfc_agent.egg-info/

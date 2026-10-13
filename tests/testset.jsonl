@@ -1,16 +1,12 @@
-"""Testset — chủ sở hữu: C. ĐÓNG BĂNG ở CP4; A và B không được sửa.
-
-Định dạng mỗi dòng (JSONL, 1 object/dòng):
-  {"id": "q01", "question": "...", "type": "retrieval|calc|contradiction|multi_doc|no_answer",
-   "refusal_type": null|"i"|"ii", "expected": "...", "must_cite": ["DOC0007"]}
-
-Phân bố bắt buộc (DE_TAI_TRFC_Agent.md §7) — tổng 12 câu, ≥4 no_answer:
-  retrieval      3   tra 1 chunk, trả lời có trích dẫn
-  calc           2   tổng giá trị dồn ngày, % vượt hạn mức
-  contradiction  2   2 giao dịch 2 quốc gia trong 10 phút; chọn policy mới nhất
-  multi_doc      1   phải trích ≥2 document
-  no_answer (i)  2   phương thức ngoài phạm vi (không có trong DOC0009)
-  no_answer (ii) 2   có quy định nhưng thiếu log giao dịch gốc → không tính được
-
-⚠️ no_answer loại (i) và (ii) phải KHÁC NHAU về bản chất: (i) lỗi ở khâu TRUY VẤN,
-(ii) lỗi ở khâu SUY LUẬN. Nếu gộp thì không chứng minh được calibration.
+{"id":"q01","question":"Theo DOC0007 phiên bản 2026.1, hạn mức mỗi ngày và mỗi giao dịch của tài khoản cá nhân eKYC tầng 2 là bao nhiêu?","category":"retrieval","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["500.000.000 VND","100.000.000 VND"]},"must_cite":["DOC0007"],"source_refs":["DOC0007"]}
+{"id":"q02","question":"Giao dịch thẻ quốc tế có hạn mức ngày nào và có cộng vào hạn mức chuyển khoản trong nước không?","category":"retrieval","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["50.000.000 VND","không cộng dồn"]},"must_cite":["DOC0007"],"source_refs":["DOC0007"]}
+{"id":"q03","question":"Theo DOC0008, ai có thẩm quyền quyết định khóa tài khoản và thời hạn khóa mặc định mức rủi ro trung bình là bao lâu?","category":"retrieval","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["kiểm soát viên","72 giờ"]},"must_cite":["DOC0008"],"source_refs":["DOC0008"]}
+{"id":"q04","question":"Tài khoản cá nhân tầng eKYC 2 có tổng giao dịch chuyển khoản trong nước 420.000.000 VND trong ngày. Còn bao nhiêu hạn mức ngày và tổng này đã vượt hạn mức chưa?","category":"calc","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["80.000.000 VND","chưa vượt"]},"must_cite":["DOC0007"],"source_refs":["DOC0007"]}
+{"id":"q05","question":"Tài khoản eKYC tầng 2 có tổng giao dịch trong ngày là 720.000.000 VND. Tính tỷ lệ vượt hạn mức ngày theo công thức của DOC0007.","category":"calc","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["44%","220.000.000 VND"]},"must_cite":["DOC0007"],"source_refs":["DOC0007"]}
+{"id":"q06","question":"Hai giao dịch của cùng tài khoản được ghi nhận tại Việt Nam lúc 10:00 và tại Singapore lúc 10:09. Theo quy tắc bất khả thi địa lý, có khớp điều kiện thời gian và quốc gia không?","category":"contradiction","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["9 phút","hai quốc gia","khớp"]},"must_cite":["DOC0004"],"source_refs":["DOC0004"]}
+{"id":"q07","question":"Khi tra soát giao dịch phát sinh ngày 2025-12-20, dùng hạn mức của DOC0003 hay DOC0007? Nêu căn cứ phiên bản/ngày hiệu lực.","category":"contradiction","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["DOC0003","2025.2","DOC0007","2026.1"]},"must_cite":["DOC0003","DOC0007"],"source_refs":["DOC0003","DOC0007"]}
+{"id":"q08","question":"Một cảnh báo rủi ro thiếu mã giao dịch gốc, và dữ liệu nhật ký giao dịch gốc đã hết thời hạn lưu trữ. Theo quy định, kiểm soát viên có được quyết định khóa tài khoản không và dữ liệu gốc được lưu tối thiểu bao lâu?","category":"multi_doc","allowed_to_answer":true,"expected_outcome":"answer","expected":{"criteria_type":"contains_all","values":["không được ra quyết định khóa","5 năm"]},"must_cite":["DOC0006","DOC0008"],"source_refs":["DOC0006","DOC0008"]}
+{"id":"q09","question":"Ví điện tử của bên thứ ba có hạn mức giao dịch bao nhiêu theo chính sách TRFC?","category":"no_answer","allowed_to_answer":false,"expected_outcome":"refusal","refusal_type":"i","expected":{"criteria_type":"refusal_reason","values":["ngoài phạm vi","không có thông tin"]},"must_cite":["DOC0009"],"source_refs":["DOC0009"]}
+{"id":"q10","question":"Thanh toán tiền mã hóa thuộc phạm vi kiểm soát của hệ thống và có quy trình đóng băng nào?","category":"no_answer","allowed_to_answer":false,"expected_outcome":"refusal","refusal_type":"i","expected":{"criteria_type":"refusal_reason","values":["ngoài phạm vi","không có thông tin"]},"must_cite":["DOC0009"],"source_refs":["DOC0009"]}
+{"id":"q11","question":"Tài khoản ACC999 hôm nay có vượt hạn mức ngày không? Không cung cấp mã tầng eKYC hay nhật ký giao dịch gốc.","category":"no_answer","allowed_to_answer":false,"expected_outcome":"refusal","refusal_type":"ii","expected":{"criteria_type":"refusal_reason","values":["không đủ dữ liệu","nhật ký giao dịch"]},"must_cite":["DOC0007","DOC0006"],"source_refs":["DOC0007","DOC0006"],"missing_evidence":["tier eKYC của tài khoản","nhật ký giao dịch gốc đầy đủ trong ngày"]}
+{"id":"q12","question":"Có hai giao dịch của cùng tài khoản cách nhau 8 phút nhưng thiếu quốc gia ghi nhận. Có thể kết luận khớp quy tắc bất khả thi địa lý không?","category":"no_answer","allowed_to_answer":false,"expected_outcome":"refusal","refusal_type":"ii","expected":{"criteria_type":"refusal_reason","values":["không đủ dữ liệu","quốc gia"]},"must_cite":["DOC0004"],"source_refs":["DOC0004"],"missing_evidence":["quốc gia của các giao dịch"]}
