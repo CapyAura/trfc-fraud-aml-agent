@@ -1,10 +1,33 @@
-> Windows không có `make` sẵn. Hoặc `winget install ezwinports.make`, hoặc chạy lệnh thô ở cột phải.
+# Windows quick reference. GNU Make is optional; see README.md for full notes.
 
-| Lệnh | Việc | Tương đương khi không có make |
+## Prerequisites
+
+- Python 3.11 or newer.
+- uv.
+- Commands below assume PowerShell from the repository root.
+
+## Install and offline checks
+
+| Task | PowerShell command |
+|---|---|
+| Sync locked dependencies and dev test tools | `uv sync --locked --group dev` |
+| Run tests without B's default-database tests | `.venv\Scripts\python.exe -m pytest --ignore=tests/test_tools.py --basetemp .test-tmp/pytest` |
+| Validate the evaluation testset only | `.venv\Scripts\python.exe -m eval.run_eval --dry-run` |
+| Run the C6 client unit tests | `.venv\Scripts\python.exe -m unittest discover -s tests -p test_client2.py -v` |
+
+The test command excludes `tests/test_tools.py` because tests in that file
+create/reset `data/state.db`. Run those tests only in a disposable checkout.
+The evaluation dry run is offline and writes no result file.
+
+## Conditional or blocked commands
+
+| Task | PowerShell command | Requirement |
 |---|---|---|
-| `make setup` | Tạo `.venv` + cài deps | `python -m venv .venv` rồi `.venv\Scripts\pip install -e ".[dev]"` |
-| `make demo` | Chạy 1 câu hỏi end-to-end | `.venv\Scripts\python -m trfc.agent.loop "ACC001 có vượt hạn mức không?"` |
-| `make eval` | Chạy testset, in bảng metric | `.venv\Scripts\python -m eval.run_eval` |
-| `make test` | Chạy self-check + pytest | `.venv\Scripts\python -m pytest` |
+| Agent demo | `.venv\Scripts\python.exe -m trfc.agent.loop "ACC001 hôm nay có vượt hạn mức không?"` | Blocked pending A/B async CLI and Groq dependency/runtime fixes; a valid Groq credential and service are also required. |
+| Real evaluation | `.venv\Scripts\python.exe -m eval.run_eval --agent-adapter package.module:function --output logs/evaluation.jsonl` | Requires an adapter matching `eval/README.md` and a working A/B runtime; no adapter is included. |
+| Generate report | `.venv\Scripts\python.exe -m eval.report --input logs/evaluation.jsonl --output-dir eval/reports` | Requires a real evaluation JSONL at the input path. |
+| C6 read-only MCP smoke call | `.venv\Scripts\python.exe -m trfc.mcp_server.client2 --tool search_policy --arguments '{"query":"transaction limits"}'` | Starts the local stdio server and searches the corpus. C6 unit tests are mocked; real-server interop is not yet verified. |
 
-Mục tiêu: GV clone repo sạch, chạy **đúng 1 lệnh** `make setup && make demo` là ra kết quả (yêu cầu 2.1).
+`make eval` and `make validate-testset` run the dry run; they do not calculate
+scores. There are no verified three-scenario logs in `logs/` yet. `make` itself
+is optional; install GNU Make separately if you want to use the root Makefile.

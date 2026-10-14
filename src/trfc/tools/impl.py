@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import sys
 
 from trfc.tools.schemas import Ack, Chunk, RiskStatus, Transaction
-from trfc.tools.state import connect
+from trfc.tools.state import connect, require_isolated_database_for_writes
 
 
 def get_transactions(account_id: str, date_from: str, date_to: str) -> list[Transaction] | str:
@@ -27,8 +27,8 @@ def get_transactions(account_id: str, date_from: str, date_to: str) -> list[Tran
     try:
         conn = connect()
 
-        start_ts = f"{date_from} T00:00:00"
-        end_ts = f"{date_to} T23:59:59"
+        start_ts = f"{date_from}T00:00:00"
+        end_ts = f"{date_to}T23:59:59"
 
         query = """
             SELECT tx_id, account_id, amount, currency, ts, country, method, location
@@ -111,6 +111,7 @@ def get_account_risk_status(account_id: str) -> RiskStatus | str:
 def freeze_account_temporarily(account_id: str, reason: str) -> Ack | str:
     """Ghi: khoá tạm thời tài khoản. B cài đặt."""
     try:
+        require_isolated_database_for_writes()
         conn = connect()
         frozen_at = datetime.now(timezone.utc).isoformat()
         
@@ -141,6 +142,7 @@ def freeze_account_temporarily(account_id: str, reason: str) -> Ack | str:
 def flag_suspicious_tx(tx_id: str, reason: str) -> Ack | str:
     """Ghi: đánh dấu giao dịch đáng ngờ. B cài đặt."""
     try:
+        require_isolated_database_for_writes()
         conn = connect()
         flagged_at = datetime.now(timezone.utc).isoformat()
         

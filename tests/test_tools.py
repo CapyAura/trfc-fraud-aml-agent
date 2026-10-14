@@ -11,11 +11,23 @@ import pytest
 
 import json
 
-def test_verify_doc_lai_tu_db(tmp_path):
+
+@pytest.fixture
+def isolated_database(tmp_path, monkeypatch):
+    from trfc.tools import state
+
+    monkeypatch.setattr(state, "DB_PATH", tmp_path / "default-state.db")
+    database = tmp_path / "state.db"
+    monkeypatch.setenv(state.DB_PATH_ENV, str(database))
+    monkeypatch.setenv(state.REQUIRE_ISOLATED_DB_ENV, "1")
+    state.reset(database)
+    return database
+
+
+def test_verify_doc_lai_tu_db(isolated_database):
     """Sau khi freeze, get_account_risk_status phải thấy frozen=True TỪ DB."""
     from trfc.tools import impl, state
 
-    state.reset(tmp_path / "state.db")
     ack = impl.freeze_account_temporarily("ACC001", "vượt hạn mức 44%")
     
     # 1. Kiểm tra kết quả trả về từ Ack object
@@ -32,7 +44,7 @@ def test_verify_doc_lai_tu_db(tmp_path):
     status_res = impl.get_account_risk_status("ACC001")
     assert "FROZEN" in str(status_res) or "frozen" in str(status_res) or "True" in str(status_res)
 
-def test_tool_loi_tra_chuoi_khong_raise():
+def test_tool_loi_tra_chuoi_khong_raise(isolated_database):
     """Tài khoản không tồn tại → chuỗi 'Error: ...', không exception (yêu cầu 2.6)."""
     from trfc.tools import impl
 
@@ -49,12 +61,11 @@ def test_parse_action_khong_crash_voi_json_hong():
     assert result.startswith("Error:")
 
 
-def test_du_lieu_seed_dung_ca_testset():
+def test_du_lieu_seed_dung_ca_testset(isolated_database):
     """Ca ACC001 phải vượt hạn mức tầng 2 — nếu seed đổi, testset của C vỡ."""
     from trfc.tools import state
 
-    state.reset()
-    conn = state.connect()
+    conn = state.connect(isolated_database)
     total = conn.execute(
         "SELECT SUM(amount) AS s FROM transactions WHERE account_id = 'ACC001'"
     ).fetchone()["s"]

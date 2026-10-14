@@ -10,6 +10,7 @@ dependencies = [
     "rank_bm25>=0.2.2",
     "tiktoken>=0.7",
     "mcp>=1.0",
+    "groq>=1.7.0",
 ]
 
 [project.optional-dependencies]
