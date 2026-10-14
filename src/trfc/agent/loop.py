@@ -441,24 +441,54 @@ async def run_detailed(question: str, *, model_request=call_llm_async) -> AgentR
         )
 
 
-async def run(question: str) -> str:
-    """Backward-compatible string API; detailed callers can use run_detailed()."""
+async def run(question: str) -> dict[str, Any]:
+    """Trả về toàn bộ chi tiết execution dưới dạng dict để dễ đánh giá."""
     result = await run_detailed(question)
-    if result.status == "completed" and result.answer is not None:
-        return result.answer
-    return f"Error: {result.error or 'Agent run failed'}"
+    
+    # Có thể tự động gắn actual_outcome nếu chưa có
+    if result.status == "completed":
+        result.actual_outcome = "answered"
+    else:
+        result.actual_outcome = "error"
+        
+    return {
+        "status": result.status,
+        "answer": result.answer,
+        "actual_outcome": result.actual_outcome,
+        "actual_refusal_type": result.actual_refusal_type,
+        "contexts": result.contexts,
+        "claims": result.claims,
+        "tool_trace": result.tool_trace,
+        "usage": result.usage,
+        "error": result.error,
+    }
 
 
 def main() -> int:
+   def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if len(sys.argv) < 2:
         print('Usage: python -m trfc.agent.loop "question"', file=sys.stderr)
         return 2
-    output = asyncio.run(run(" ".join(sys.argv[1:])))
-    print(output)
-    return 1 if output.startswith("Error:") else 0
 
+    # Chạy hàm lấy chi tiết result
+    result = asyncio.run(run_detailed(" ".join(sys.argv[1:])))
+    
+    # In toàn bộ JSON kết quả ra stdout
+    output_dict = {
+        "status": result.status,
+        "answer": result.answer,
+        "actual_outcome": result.actual_outcome,
+        "actual_refusal_type": result.actual_refusal_type,
+        "contexts": result.contexts,
+        "claims": result.claims,
+        "tool_trace": result.tool_trace,
+        "usage": result.usage,
+        "error": result.error,
+    }
+    print(json.dumps(output_dict, ensure_ascii=False, indent=2))
+    return 0 if result.status == "completed" else 1
 
 if __name__ == "__main__":
     raise SystemExit(main())
