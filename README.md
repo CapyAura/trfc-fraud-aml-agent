@@ -15,8 +15,8 @@ unit tests không đồng nghĩa tích hợp live đã được xác minh; xem [
 | A — corpus | **xong**: 9 tài liệu, 16.293 token (tiktoken cl100k_base) |
 | A — chunking | **xong**: cắt theo Chương→Điều→Khoản, bảng markdown atomic |
 | A — embed / store / search | **xong**: dense + hybrid BM25 (`0.3*BM25_norm + 0.7*cosine`), top-K kèm score, pre-filter `tier` |
-| B — tool / agent loop / MCP | Có native Groq tool-call loop, MCP client/server và fail-closed guard cho write tools. Live Groq/MCP interoperability và subprocess database isolation **chưa xác minh**; runtime files cần Person B review. |
-| C — testset / eval / log | Testset, offline evaluator, metrics, reports, JSONL validation và best-effort log redaction đã có. C4 **chưa hoàn tất**: không có genuine scenario logs, metadata authoritative còn thiếu, và MCP subprocess isolation chưa được xác minh. |
+| B — tool / agent loop / MCP | Có native Groq tool-call loop, MCP client/server và fail-closed guard cho write tools. MCP subprocess isolation đã được người dùng xác minh trên DB tạm; live Groq/MCP interoperability chưa xác minh. |
+| C — testset / eval / log | Testset, offline evaluator, metrics, reports, JSONL validation, best-effort redaction và typed offline policy-input validation đã có. C4 **chưa hoàn tất**: chưa có genuine scenario logs; production decisions remain unavailable without trusted input provenance, Freeze/Flag authorization and authoritative claims. |
 
 ## Chạy
 
@@ -32,15 +32,16 @@ Groq credentials/network cùng MCP runtime; tools ghi trạng thái chỉ đư�
 `TRFC_REQUIRE_ISOLATED_DB=1` và một isolated `TRFC_STATE_DB` được cấu hình. Không
 xem demo là offline check.
 
-**Trạng thái xác minh gần nhất của working tree:** test chạy bằng Python hệ thống bị
-blocked vì môi trường đó không có `pytest`. Python trong `.venv` trỏ tới interpreter
-uv-managed không còn ở vị trí ghi trong `pyvenv.cfg`; lần thử targeted test không đạt
-assertion và bị dừng. AST syntax check cho timeout changes và `git diff --check` đã
-pass. `python -m eval.run_eval --dry-run` hiện pass với 12 cases và không gọi
-agent/API hay ghi score. Một lượt trước đó từng báo 22 passed và 4 deselected; kết quả đó có trước
-timeout change mới nhất và không xác minh working tree hiện tại. `make test` chủ
-động loại `tests/test_tools.py` bằng `--ignore`, nên module đó không được chạy bởi
-target này. Không có test nào bị tính pass chỉ vì đã bị deselect hoặc không chạy được.
+**Trạng thái xác minh gần nhất của working tree:** full offline pytest suite đã pass
+trên Python 3.14.7 bằng `.venv` của dự án: adapter tests **14 passed**, focused
+regression suite **118 passed, 1 skipped**, full suite **142 passed, 1 skipped**.
+`git diff --check` không có whitespace error; Git chỉ báo LF-to-CRLF working-copy
+notices. Các kết quả trên chỉ xác nhận automated test coverage. Người dùng đã
+báo cáo riêng MCP subprocess isolation PASS trên DB tạm; lần triển khai policy
+offline này không chạy lại verifier. Chưa xác minh live Groq request hoặc
+production policy metadata cho outcome/refusal/claims. Deterministic offline
+policy tests dùng provenance `synthetic` và không phải genuine scenario evidence.
+Không có live evaluation hoặc thao tác trên production database được xác nhận.
 
 ## Tài liệu
 

@@ -146,6 +146,40 @@ def test_write_guard_rejects_conflicting_caller_path(tmp_path, monkeypatch):
         state.require_isolated_database_for_writes(conflicting)
 
 
+def test_write_guard_accepts_equivalent_normalized_paths_without_opening_sqlite(
+    tmp_path, monkeypatch
+):
+    from trfc.tools import state
+
+    database = tmp_path / "isolated.db"
+    configured_spelling = tmp_path / "subdir" / ".." / "isolated.db"
+    requested_spelling = tmp_path / "other" / ".." / "isolated.db"
+    monkeypatch.setenv(state.REQUIRE_ISOLATED_DB_ENV, "1")
+    monkeypatch.setenv(state.DB_PATH_ENV, str(configured_spelling))
+    monkeypatch.setattr(state.sqlite3, "connect", pytest.fail)
+
+    assert state.require_isolated_database_for_writes(requested_spelling) is None
+    assert state.resolve_db_path() == database.resolve()
+    assert not database.exists()
+
+
+def test_write_guard_rejects_normalized_alias_of_default_without_opening_sqlite(
+    tmp_path, monkeypatch
+):
+    from trfc.tools import state
+
+    default_database = tmp_path / "data" / "state.db"
+    alias = tmp_path / "data" / "nested" / ".." / "state.db"
+    monkeypatch.setattr(state, "DB_PATH", default_database)
+    monkeypatch.setenv(state.REQUIRE_ISOLATED_DB_ENV, "1")
+    monkeypatch.setenv(state.DB_PATH_ENV, str(alias))
+    monkeypatch.setattr(state.sqlite3, "connect", pytest.fail)
+
+    with pytest.raises(RuntimeError, match="default state.db"):
+        state.require_isolated_database_for_writes()
+    assert not default_database.exists()
+
+
 def test_valid_isolated_write_guard_does_not_open_sqlite(tmp_path, monkeypatch):
     from trfc.tools import state
 
@@ -208,6 +242,38 @@ def test_reset_guard_blocks_default_path_before_database_access(monkeypatch, tmp
     monkeypatch.setenv(state.REQUIRE_ISOLATED_DB_ENV, "1")
     with pytest.raises(RuntimeError, match="blocked"):
         state.reset()
+
+
+def test_reset_rejects_caller_path_mismatch_before_unlinking_or_opening(
+    monkeypatch, tmp_path
+):
+    from trfc.tools import state
+
+    configured = tmp_path / "configured.db"
+    requested = tmp_path / "requested.db"
+    requested.write_text("temporary sentinel, not a database", encoding="utf-8")
+    monkeypatch.setenv(state.REQUIRE_ISOLATED_DB_ENV, "1")
+    monkeypatch.setenv(state.DB_PATH_ENV, str(configured))
+    monkeypatch.setattr(state.sqlite3, "connect", pytest.fail)
+
+    with pytest.raises(RuntimeError, match="does not match TRFC_STATE_DB"):
+        state.reset(requested)
+    assert requested.read_text(encoding="utf-8") == "temporary sentinel, not a database"
+
+
+def test_reset_accepts_equivalent_normalized_configured_path(tmp_path, monkeypatch):
+    from trfc.tools import state
+
+    database = tmp_path / "isolated.db"
+    alias = tmp_path / "subdir" / ".." / "isolated.db"
+    monkeypatch.setenv(state.REQUIRE_ISOLATED_DB_ENV, "1")
+    monkeypatch.setenv(state.DB_PATH_ENV, str(database))
+
+    state.reset(alias)
+
+    assert database.is_file()
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 3
 
 
 def test_empty_database_override_is_rejected(monkeypatch):

@@ -48,49 +48,60 @@ evaluation requirement; it is not claimed by this implementation.
 
 ## Runtime adapter and evaluation JSONL
 
-The repository includes the minimal adapter `eval.agent_adapter:run_case`. It
-receives one case dict and calls `run_detailed(question)`, returning the runtime
-fields without deriving outcome, refusal subtype, contexts, or claims from the
-answer text:
+The built-in adapter `eval.agent_adapter:run_case` calls the existing
+`run_detailed(question)` interface once and maps its `AgentRunResult` fields
+without deriving metadata from answer text. This preserves structured status,
+error, usage, retrieval contexts, and trace state where the runtime captured
+them. The adapter does not call the public `run(question) -> str` path and does
+not execute the agent twice. `run(question)` remains unchanged for existing
+callers.
 
-```python
-{
-    "answer": str | None,
-    "actual_outcome": "answer" | "refusal",  # or `refused: bool`
-    "actual_refusal_type": "i" | "ii" | None,
-    "contexts": list[str] | None,             # each context should identify DOCnnnn
-    "claims": list[str] | None,               # explicit factual claim segmentation
-    "tool_trace": list[dict] | None,
-    "usage": {
-        "calls": int, "prompt_tokens": int | None,
-        "completion_tokens": int | None, "max_prompt": int | None,
-    } | None,
-}
-```
+`run_detailed()` currently leaves `actual_outcome`, `actual_refusal_type`,
+`policy_rule_id`, `decision_source`, and `claims` unavailable (`null`), so
+successful executions remain unscorable for decision-dependent metrics;
+refusal subtype and faithfulness also remain unscorable. A literal answer prefix such as `Error: ` is not treated as an
+error; structured runtime `status` determines failure. The detailed interface
+is provisional in runtime source, but the evaluator has selected and implemented
+its existing `AgentRunResult` contract without changing `run(question)`. Coordinate
+with Person B before changing that runtime interface. The source contract and
+comparison with other options are in
+[`PERSON_B_C4_METADATA_CONTRACT.md`](PERSON_B_C4_METADATA_CONTRACT.md).
 
-`actual_outcome` must be supplied from a recorded runtime classification (or an
-explicit boolean `refused`); the evaluator does not infer it from answer text.
-Refusal subtype and claims remain unavailable. The runtime preserves contexts
-only from valid serialized `search_policy` chunks containing their returned
-`doc_id` and `text`; malformed or missing retrieval data remains unavailable.
-`calls` counts requests issued by the runtime wrapper. Per run,
-`prompt_tokens` and `completion_tokens` are provider-reported totals only, and
-`max_prompt` is the largest provider-reported prompt-token count from any one
-request. Any aggregate whose provider counter is missing remains null. When a
-request has no provider usage object, prompt/completion totals and `max_prompt`
-are all null rather than partial or fabricated values.
+`eval.agent_adapter.build_adapter(model_request, mode=..., provider_id=...)`
+provides explicit provider injection for offline evaluation. It forwards the
+provider to `run_detailed()` and accepts only `mock`, `unit_test`, or
+`synthetic` provenance. The default `run_case` adapter remains bound to the
+runtime's existing default provider. `run(question) -> str` remains unchanged.
 
-Each output JSONL row adds timestamp, case ID/category, expected outcome and
+For deterministic policy-contract checks, `eval.agent_adapter:offline_policy_case`
+is a separate adapter registered as `synthetic`. It requires a structured
+`policy_request` (`intent`, evidence reference, and the relevant typed policy
+fact); it never parses the question or answer, calls the LLM/MCP agent, or
+executes database tools. `trfc.agent.offline.run_policy_offline()` is its runtime
+entry point. DOC0009 Arts. 3–5 and DOC0007 Art. 12 identify which structured
+facts would be relevant, but the project has no authenticated source for the
+caller-provided method classification or log-retention status. The runtime
+therefore returns `needs_information` and does not populate outcome, refusal
+subtype, rule ID, or decision source. Freeze and Flag remain blocked pending
+authenticated approval and a structured rule-match source. Claims and provider
+usage remain unavailable. These tests carry synthetic provenance and are not
+genuine production C4 evidence.
+
+For the built-in detailed adapter, `tool_trace: null` means
+unavailable/incomplete capture, while `tool_trace: []` means capture completed
+and there were no tool calls. Populated lists may contain complete or partial
+captured calls, and status must preserve whether execution failed. The current
+runtime emits these states according to its current capture lifecycle; they are
+passed through without converting `null` to `[]`.
+
+Each output JSONL row includes timestamp, case ID/category, expected outcome and
 references, actual fields, metrics, error, and status (`completed`, `failed`, or
-`unscorable`). Missing usage is written as `null`, never as fabricated zeroes.
-One case failure is recorded and does not stop later cases.
-
-Interpret these states separately: a runtime error has `status="failed"` and a
-non-null `error`; a completed execution with no authoritative `actual_outcome`
-has `status="unscorable"` and leaves the missing metadata null; an
-inapplicable metric (for example refusal subtype on an answer outcome) is null
-while the row can still be completed. Missing contexts/claims leave their
-dependent metrics unscorable without being converted to zero.
+`unscorable`). Missing usage stays `null`, not zero. A runtime failure is
+`failed`; absent decision metadata leaves a successful execution `unscorable`;
+a not-applicable metric (for example refusal subtype on an answer outcome) stays
+null. Optional `policy_rule_id` and `decision_source` fields are copied from the
+runtime result when present; the evaluator does not derive them. Failures are
+written per case and do not prevent later cases.
 
 ```powershell
 $env:TRFC_STATE_DB = Join-Path $env:TEMP ("trfc-eval-" + [guid]::NewGuid() + ".db")
@@ -100,24 +111,9 @@ python -m eval.run_eval --agent-adapter eval.agent_adapter:run_case --output log
 
 That command invokes the agent and writes evaluation output; it requires a
 working Groq/MCP runtime, credentials, and an environment where asyncio works.
-The adapter passes unknown fields through as `null`. In particular,
-`run_detailed()` currently does not establish `actual_outcome`, refusal subtype,
-or claims, so those metrics remain unscorable; contexts are captured only from
-valid `search_policy` results. Provider token counts remain null if Groq does
-not report them. Trace lifecycle is explicit: the
-runtime returns `null` before MCP discovery has succeeded, `[]` for a completed
-run that made no tool calls, and captured events for runs that called tools. If
-execution fails before any event is captured, the trace remains `null`; failures
-after recorded events retain that partial trace. The adapter and case validator
-preserve `null` as unavailable/incomplete, `[]` as completed capture with no
-calls, and populated lists as captured records. A completed evaluation row may
-therefore retain `tool_trace: null`; a failed row cannot claim an empty completed
-trace. Explicit runtime failures are recorded by the evaluator and do not
-prevent later cases from running.
-
-The dry run only validates the testset and produces no scores or output file. It
-works offline and requires neither `.env` nor an LLM credential. Adapter unit
-tests use fake runtime results; they do not establish a real Groq or MCP run.
+The dry run only validates the testset, produces no scores or output file, and
+needs neither `.env` nor credentials. Adapter tests use fake responses; they do
+not establish real Groq/MCP behavior or subprocess database isolation.
 
 ## CSV and charts
 
@@ -153,12 +149,12 @@ CSV and charts explicitly labelled as having no evaluation data.
   [tool-use support matrix](https://console.groq.com/docs/tool-use/overview)),
   but this repository has not verified a live request or endpoint access. The
   local path has fake-based unit coverage only.
-- `run(question)` still returns a string. `run_detailed(question)` is a
-  provisional result interface that also exposes tool trace and usage. The
-  built-in `eval.agent_adapter:run_case` maps this result without inferring
-  outcome/refusal subtype or claims. Retrieved contexts are copied from
-  successful `search_policy` chunks with their document IDs. Refusal evaluation
-  therefore remains unscorable until a runtime source supplies classification.
+- `run(question)` returns a string and remains unchanged. `run_detailed()` returns
+  the provisional `AgentRunResult` dataclass with status, error, trace, usage,
+  contexts and answer. The built-in evaluator adapter maps this result once per
+  case. Person B has not yet confirmed it as a stable integration contract.
+  Neither API currently supplies authoritative outcome/refusal subtype or
+  claims; those metrics remain unscorable until an agreed runtime source exists.
 - A real evaluation now fails closed unless `TRFC_REQUIRE_ISOLATED_DB=1` and an
   absolute `TRFC_STATE_DB` path are set. The evaluator rejects a path that
   resolves to the default `data/state.db` before creating output or invoking the
@@ -241,17 +237,14 @@ the A/B integration and real scenarios have run.
 
 ### Latest recorded verification status
 
-The latest focused pytest attempt for timeout behavior is **blocked**, not
-passed: the active Python 3.12.12 has no `pytest`, and `.venv` references a
-missing uv-managed Python 3.14 interpreter. A targeted attempt did not reach a
-verified assertion and was stopped. AST syntax parsing for the timeout changes
-and `git diff --check` passed; the latter reported only Git's LF-to-CRLF
-working-copy notices. `python -m eval.run_eval --dry-run` passed with 12 valid
-cases and made no agent/API calls or scores. An earlier run reported 22 passed and 4 deselected, but
-that predates the timeout change and does not verify the current working tree.
-`make test` excludes `tests/test_tools.py`; excluded tests are not counted as
-passed. No real evaluation, live API call, or MCP subprocess verification is
-claimed here.
+The current working tree passed the full offline pytest suite on Python 3.14.7 using the project `.venv`:
+
+- Adapter tests: **14 passed**.
+- Focused regression suite: **118 passed, 1 skipped**.
+- Full suite: **142 passed, 1 skipped**.
+- `git diff --check` completed without whitespace errors; Git emitted only LF-to-CRLF working-copy notices.
+
+These results establish automated test coverage only. They do not establish a live Groq request, genuine MCP subprocess isolation, or authoritative outcome/refusal/claims metadata. The `AgentRunResult` interface remains provisional pending cross-owner confirmation. No live evaluation or production database operation is claimed.
 
 ## C4 trace validation and genuine-run evidence
 
@@ -265,8 +258,9 @@ written by `eval.run_eval`. Every JSON object has these required keys:
 `actual_outcome` equal to `answer` or `refusal`. Case-level `usage` is either
 `null` (unavailable) or an object with non-negative integer `calls` and token
 counters (`prompt_tokens`, `completion_tokens`, `max_prompt`) that are
-non-negative integers or `null` when provider usage is unavailable. The evaluator passes
-`tool_trace` through from the adapter and does not impose a step-event schema.
+non-negative integers or `null` when provider usage is unavailable. Case-level
+rows pass `tool_trace` through from the adapter; optional step-event output is
+separately serialized and checked against the event schema below.
 
 C4's requested step trace is a separate record type. Validate it with
 `python -m eval.log_validation --kind event path\to\run.jsonl`. Each line must
@@ -275,12 +269,64 @@ be a JSON object containing `record_type="step_event"`, timezone-aware ISO
 `refusal`), `execution_mode` (`real`, `mock`, `dry_run`, `unit_test`, or
 `synthetic`), positive integer `step`, non-empty `tool`, object `args`, a
 non-null `result`, and `usage` with non-negative integer `calls` and token
-counters that are non-negative integers or `null` when unavailable. The current
-A/B agent does not emit these events; this validator defines
-and checks the C4 capture contract, it does not create events. Both modes report
-invalid JSON/schema with file and line number. A successful validation means
-only that the schema is valid. A declared `execution_mode="real"` is not proof
-of authenticity.
+counters that are non-negative integers or `null` when unavailable. The
+evaluator can append events derived from an adapter's structured `tool_trace`
+when `--step-events-output` is provided with a registered adapter. The event
+mode is taken from the adapter registration; `--execution-mode` is optional
+and acts only as a consistency check. Only cases with an explicit `scenario` field (`freeze`, `flag`, or
+`refusal`) are eligible. Event output is opened in append mode; it does not
+replace existing event records, and a pre-existing file is appendable only when
+its lines are already valid step events (to prevent mixing case logs and event
+logs). The evaluator generates an opaque `run_id` per case and a timezone-aware
+timestamp per event; these identify log records but do not authenticate runtime
+provenance. Tool arguments and successful results use the
+existing best-effort redactor. For failed tool calls, the event keeps the
+captured error status but omits free-form exception details.
+
+For `freeze` and `flag`, a case label alone is insufficient: the captured trace
+must contain the corresponding `freeze_account_temporarily` or
+`flag_suspicious_tx` tool call. Such an event records only that the MCP tool
+call was captured and whether that call returned or errored. Even a completed
+call or acknowledgement is marked `business_outcome_verified=false`; the
+current runtime does not provide authoritative business-state verification.
+Refusal tool-step events require structured `actual_outcome="refusal"` and
+`actual_refusal_type` (`i` or `ii`) metadata plus a captured tool trace. Answer
+text is never used to infer refusal or subtype. Cases lacking these conditions
+are skipped with a reason in the evaluator summary.
+
+Decision/refusal records use a separate schema and file. When configured with
+`--decision-events-output`, the evaluator appends a `decision_event` only when
+the runtime adapter supplies a valid actual outcome and structured
+`decision_source`; refusal additionally requires an actual subtype. The record
+has no fake `tool` or `step` field. `tool_trace: []` records a complete capture
+with zero tool calls; `tool_trace: null` records unavailable capture and leaves
+the count null. The decision record uses the same per-case `run_id` as any tool
+events from that evaluation. Validate it with
+`python -m eval.log_validation --kind decision path\to\decision_events.jsonl`.
+The current built-in runtime does not supply the required decision metadata,
+so it skips decision-event output until an authoritative runtime source exists.
+A schema-valid unit-test event is not genuine-run evidence.
+
+The case row is serialized and written before its step events are appended. If
+case serialization fails, that case produces no step events. This avoids
+leaving an event that suggests a successful case record exists when it does
+not.
+
+The evaluator requires a registered adapter for step-event or decision-event
+output. Its standard
+registration API does not allow injected providers to claim `real`, and the
+built-in adapter is explicitly registered for the runtime's default provider.
+The optional CLI mode cannot override that registration. This is a
+configuration/provenance guard, not cryptographic attestation: custom Python
+code can intentionally misrepresent its behavior. Use `unit_test`, `mock`, or
+`synthetic` only for the corresponding source of events. A missing or empty
+trace produces no tool step event. The separate decision-event schema can
+represent a structured refusal without a tool call; it remains unavailable until
+the runtime supplies the required structured metadata. Missing usage is
+also left unavailable and prevents event creation rather than being replaced by
+zero. Event validation checks schema and the registered configuration; it does
+not prove that a genuine provider or runtime executed. `--dry-run` never emits
+events.
 
 ### Genuine scenario collection runbook (requires A/B integration)
 

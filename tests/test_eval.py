@@ -137,7 +137,8 @@ def test_usage_preserves_actual_call_count_when_provider_tokens_are_unavailable(
 
 def test_actual_outcome_is_not_guessed_from_answer_text():
     assert _actual_outcome({"answer": "some text"}) is None
-    assert _actual_outcome({"refused": False, "answer": "some text"}) == "answer"
+    assert _actual_outcome({"refused": False, "answer": "some text"}) is None
+    assert _actual_outcome({"refused": True, "answer": "I cannot help"}) is None
     assert _actual_outcome({"actual_outcome": "refusal", "answer": "some text"}) == "refusal"
 
 

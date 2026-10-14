@@ -49,6 +49,20 @@ def test_default_database_path_is_rejected_without_opening_it(tmp_path):
         )
 
 
+def test_normalized_path_alias_of_default_is_rejected_without_creating_database(
+    tmp_path,
+):
+    default_db = tmp_path / "data" / "state.db"
+    alias = tmp_path / "data" / "nested" / ".." / "state.db"
+
+    with pytest.raises(DatabaseIsolationError, match="default data/state.db"):
+        require_isolated_database(
+            _environment(alias), default_database=default_db
+        )
+
+    assert not default_db.exists()
+
+
 def test_symlink_resolving_to_default_database_is_rejected(tmp_path):
     default_db = tmp_path / "default.db"
     default_db.touch()
@@ -80,6 +94,20 @@ def test_explicit_temporary_database_path_is_accepted(tmp_path):
     )
     assert resolved == database.resolve()
     assert not database.exists()  # Validation does not create or open SQLite.
+
+
+def test_normalized_temporary_path_alias_is_accepted_without_opening_database(
+    tmp_path,
+):
+    database = tmp_path / "isolated.db"
+    alias = tmp_path / "subdir" / ".." / "isolated.db"
+
+    resolved = require_isolated_database(
+        _environment(alias), default_database=tmp_path / "default.db"
+    )
+
+    assert resolved == database.resolve()
+    assert not database.exists()
 
 
 def test_evaluate_rejects_missing_isolation_before_adapter_or_output(

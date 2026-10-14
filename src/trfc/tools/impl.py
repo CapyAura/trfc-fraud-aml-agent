@@ -63,31 +63,32 @@ def get_transactions(account_id: str, date_from: str, date_to: str) -> list[Tran
 
 
 def get_account_risk_status(account_id: str) -> RiskStatus | str:
-    """Đọc trạng thái rủi ro HIỆN TẠI từ state.db. B cài đặt — đây là bước verify."""
+    """Đọc trạng thái rủi ro hiện tại của tài khoản từ state.db."""
+    conn = None
     try:
         conn = connect()
 
         acc_row = conn.execute(
-            "SELECT account_id, frozen, freeze_reason, frozen_at FROM accounts WHERE account_id = ?",
-            (account_id,)
+            """
+            SELECT account_id, frozen, freeze_reason, frozen_at
+            FROM accounts
+            WHERE account_id = ?
+            """,
+            (account_id,),
         ).fetchone()
 
-        if not acc_row:
-            conn.close()
+        if acc_row is None:
             return f"Error: Account {account_id} not found in system."
 
         flag_rows = conn.execute(
             """
-            SELECT f.tx_id 
-            FROM flags f
-            JOIN transactions t ON f.tx_id = t.tx_id
+            SELECT f.tx_id
+            FROM flags AS f
+            JOIN transactions AS t ON f.tx_id = t.tx_id
             WHERE t.account_id = ?
             """,
-            (account_id,)
+            (account_id,),
         ).fetchall()
-        
-        flagged_tx_ids = [r["tx_id"] for r in flag_rows]
-        conn.close()
 
         frozen_at_dt = None
         if acc_row["frozen_at"]:
@@ -100,12 +101,21 @@ def get_account_risk_status(account_id: str) -> RiskStatus | str:
             frozen=bool(acc_row["frozen"]),
             freeze_reason=acc_row["freeze_reason"],
             frozen_at=frozen_at_dt,
-            flagged_tx_ids=flagged_tx_ids,
-            checked_at=datetime.now(timezone.utc)  # Mốc thời gian VERIFY MỚI NHẤT
+            flagged_tx_ids=[row["tx_id"] for row in flag_rows],
+            checked_at=datetime.now(timezone.utc),
         )
     except Exception as e:
-        print(f"[ERROR] Get account at risk status failed: {e}", file=sys.stderr)
-        return f"Error: Failed to get risk status for account {account_id}: {str(e)}"
+        print(
+            f"[ERROR] get_account_risk_status: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        return (
+            f"Error: Failed to get risk status for account "
+            f"{account_id}: {type(e).__name__}: {e}"
+        )
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def freeze_account_temporarily(account_id: str, reason: str) -> Ack | str:

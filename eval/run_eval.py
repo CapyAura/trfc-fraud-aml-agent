@@ -19,15 +19,22 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 try:  # package execution: python -m eval.run_eval
     from .metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
     from .database_isolation import require_isolated_database
     from .redaction import redact_for_log
+    from .step_events import append_step_events
+    from .decision_events import append_decision_event
+    from .provenance import resolve_execution_mode
 except ImportError:  # direct script execution
     from metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
     from database_isolation import require_isolated_database
     from redaction import redact_for_log
+    from step_events import append_step_events
+    from decision_events import append_decision_event
+    from provenance import resolve_execution_mode
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TESTSET = ROOT / "tests" / "testset.jsonl"
@@ -36,6 +43,7 @@ EXPECTED_DISTRIBUTION = {
     "retrieval": 3, "calc": 2, "contradiction": 2,
     "multi_doc": 1, "no_answer": 4,
 }
+_SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 
 
 def load_testset(path: Path = DEFAULT_TESTSET) -> list[dict[str, Any]]:
@@ -71,6 +79,11 @@ def validate_testset(cases: list[dict[str, Any]]) -> None:
             raise ValueError(f"Case {case['id']} has an empty question")
         if not isinstance(case["category"], str) or case["category"] not in EXPECTED_DISTRIBUTION:
             raise ValueError(f"Case {case['id']} has an unsupported category")
+        if "scenario" in case and (
+            not isinstance(case["scenario"], str)
+            or case["scenario"] not in {"freeze", "flag", "refusal"}
+        ):
+            raise ValueError(f"Case {case['id']} has an unsupported C4 scenario")
         if not isinstance(case["allowed_to_answer"], bool):
             raise ValueError(f"Case {case['id']} allowed_to_answer must be boolean")
         if not isinstance(case["expected_outcome"], str) or case["expected_outcome"] not in {"answer", "refusal"}:
@@ -155,24 +168,40 @@ def _actual_outcome(result: dict[str, Any]) -> str | None:
     outcome = result.get("actual_outcome")
     if isinstance(outcome, str) and outcome in {"answer", "refusal"}:
         return outcome
-    refused = result.get("refused")
-    if type(refused) is bool:
-        return "refusal" if refused else "answer"
     return None
 
 
 async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
-                   case_timeout: float = 180.0) -> dict[str, Any]:
+                   case_timeout: float = 180.0, *,
+                   step_events_path: Path | None = None,
+                   decision_events_path: Path | None = None,
+                   execution_mode: str | None = None) -> dict[str, Any]:
     if case_timeout <= 0:
         raise ValueError("case_timeout must be positive")
+    has_event_output = step_events_path is not None or decision_events_path is not None
+    if not has_event_output and execution_mode is not None:
+        raise ValueError("execution mode requires event output")
+    resolved_execution_mode = None
+    if has_event_output:
+        event_paths = [Path(path).resolve() for path in (step_events_path, decision_events_path) if path is not None]
+        if Path(output_path).resolve() in event_paths or len(set(event_paths)) != len(event_paths):
+            raise ValueError("case, tool-event, and decision-event outputs must be different files")
+        resolved_execution_mode = resolve_execution_mode(adapter, execution_mode)
     # Adapters may invoke the write-capable agent tools. Fail before creating
     # output or calling an adapter unless the isolated DB contract is explicit.
     require_isolated_database()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = failed = unscorable = 0
     refusal_rows = []
+    event_written = 0
+    event_skipped: dict[str, int] = {}
+    event_errors = 0
+    decision_event_written = 0
+    decision_event_skipped: dict[str, int] = {}
+    decision_event_errors = 0
     with output_path.open("w", encoding="utf-8", newline="\n") as stream:
         for case in cases:
+            run_id = uuid4().hex if has_event_output else None
             row: dict[str, Any] = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "question_id": case["id"], "category": case["category"],
@@ -182,6 +211,8 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 "expected": case["expected"], "source_refs": case["source_refs"],
                 "actual_answer": None, "actual_outcome": None,
                 "actual_refusal_type": None, "contexts": None, "claims": None,
+                "policy_rule_id": None, "decision_source": None,
+                "policy_decision_status": None, "policy_reason_code": None,
                 "tool_trace": None, "usage": None, "metrics": {},
                 "error": None, "status": "failed",
             }
@@ -191,14 +222,60 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                     raise TypeError("Adapter must return a dict")
                 row["actual_answer"] = result.get("answer")
                 row["actual_outcome"] = _actual_outcome(result)
-                row["actual_refusal_type"] = result.get("actual_refusal_type")
+                refusal_type = result.get("actual_refusal_type")
+                row["actual_refusal_type"] = (
+                    refusal_type
+                    if row["actual_outcome"] == "refusal" and refusal_type in {"i", "ii"}
+                    else None
+                )
+                policy_rule_id = result.get("policy_rule_id")
+                row["policy_rule_id"] = (
+                    policy_rule_id
+                    if isinstance(policy_rule_id, str) and _SAFE_IDENTIFIER.fullmatch(policy_rule_id)
+                    else None
+                )
+                decision_source = result.get("decision_source")
+                row["decision_source"] = (
+                    decision_source
+                    if isinstance(decision_source, str) and _SAFE_IDENTIFIER.fullmatch(decision_source)
+                    else None
+                )
+                policy_status = result.get("policy_decision_status")
+                row["policy_decision_status"] = (
+                    policy_status if policy_status in {"decided", "needs_information"} else None
+                )
+                policy_reason_code = result.get("policy_reason_code")
+                row["policy_reason_code"] = (
+                    policy_reason_code
+                    if isinstance(policy_reason_code, str) and policy_reason_code.strip()
+                    else None
+                )
+                if row["policy_decision_status"] == "needs_information":
+                    row["actual_outcome"] = None
+                    row["actual_refusal_type"] = None
+                    row["policy_rule_id"] = None
+                    row["decision_source"] = None
+                elif row["policy_decision_status"] == "decided":
+                    if row["actual_outcome"] not in {"answer", "refusal"} or row["decision_source"] is None:
+                        row["policy_decision_status"] = None
                 row["contexts"] = result.get("contexts")
                 row["claims"] = result.get("claims")
                 row["tool_trace"] = result.get("tool_trace")
                 row["usage"] = _usage_or_none(result.get("usage"))
-                if result.get("status") == "failed":
+                status = result.get("status")
+                if status == "failed":
                     raise RuntimeError(result.get("error") or "Adapter reported a failed runtime execution")
-                if not isinstance(row["actual_outcome"], str) or row["actual_outcome"] not in {"answer", "refusal"}:
+                if status not in (None, "completed", "unscorable"):
+                    raise ValueError(f"Adapter returned an invalid execution status: {status!r}")
+                if status == "unscorable":
+                    row["actual_outcome"] = None
+                    row["actual_refusal_type"] = None
+                    row["policy_rule_id"] = None
+                    row["decision_source"] = None
+                    row["policy_decision_status"] = None
+                    row["status"] = "unscorable"
+                    unscorable += 1
+                elif not isinstance(row["actual_outcome"], str) or row["actual_outcome"] not in {"answer", "refusal"}:
                     row["status"] = "unscorable"
                     unscorable += 1
                 else:
@@ -221,18 +298,22 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                         else None
                     ),
                 }
-                refusal_rows.append({
-                    "allowed_to_answer": case["allowed_to_answer"],
-                    "actual_outcome": row["actual_outcome"],
-                    "expected_refusal_type": case.get("refusal_type"),
-                    "actual_refusal_type": row["actual_refusal_type"],
-                })
             except Exception as exc:  # continue so a single case cannot abort the set
                 row["error"] = f"{type(exc).__name__}: {exc}"
+                row["status"] = "failed"
+                row["actual_outcome"] = None
+                row["actual_refusal_type"] = None
+                row["policy_rule_id"] = None
+                row["decision_source"] = None
+                row["policy_decision_status"] = None
+                row["policy_reason_code"] = None
+                row["claims"] = None
                 failed += 1
+            case_serialization_failed = False
             try:
                 encoded_row = json.dumps(redact_for_log(row), ensure_ascii=False, allow_nan=False)
             except (TypeError, ValueError):
+                case_serialization_failed = True
                 if row["status"] == "completed":
                     completed -= 1
                 elif row["status"] == "unscorable":
@@ -243,6 +324,10 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 row["actual_answer"] = None
                 row["actual_outcome"] = None
                 row["actual_refusal_type"] = None
+                row["policy_rule_id"] = None
+                row["decision_source"] = None
+                row["policy_decision_status"] = None
+                row["policy_reason_code"] = None
                 row["contexts"] = None
                 row["claims"] = None
                 row["tool_trace"] = None
@@ -250,9 +335,86 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 row["metrics"] = {}
                 encoded_row = json.dumps(redact_for_log(row), ensure_ascii=False, allow_nan=False)
             stream.write(encoded_row + "\n")
+            if not case_serialization_failed and row["status"] != "failed":
+                refusal_rows.append({
+                    "allowed_to_answer": case["allowed_to_answer"],
+                    "actual_outcome": row["actual_outcome"],
+                    "expected_refusal_type": case.get("refusal_type"),
+                    "actual_refusal_type": row["actual_refusal_type"],
+                })
+            if step_events_path is not None:
+                if case_serialization_failed:
+                    reason = "case_serialization_failed"
+                    event_skipped[reason] = event_skipped.get(reason, 0) + 1
+                else:
+                    scenario = case.get("scenario")
+                    if scenario is None:
+                        reason = "scenario_unavailable"
+                        event_skipped[reason] = event_skipped.get(reason, 0) + 1
+                    else:
+                        try:
+                            event_result = append_step_events(
+                                step_events_path,
+                                tool_trace=row["tool_trace"],
+                                usage=row["usage"],
+                                run_id=run_id,
+                                question_id=case["id"],
+                                scenario=scenario,
+                                execution_mode=resolved_execution_mode,
+                                actual_outcome=row["actual_outcome"],
+                                actual_refusal_type=row["actual_refusal_type"],
+                            )
+                            event_written += event_result.written
+                            if event_result.skipped_reason is not None:
+                                reason = event_result.skipped_reason
+                                event_skipped[reason] = event_skipped.get(reason, 0) + 1
+                        except (OSError, TypeError, ValueError):
+                            # Do not mislabel the model/tool run as a runtime failure;
+                            # report event persistence failure separately and return
+                            # a non-success summary to the CLI.
+                            event_errors += 1
+            if decision_events_path is not None:
+                if case_serialization_failed:
+                    reason = "case_serialization_failed"
+                    decision_event_skipped[reason] = decision_event_skipped.get(reason, 0) + 1
+                elif row["status"] != "completed":
+                    reason = "runtime_not_completed"
+                    decision_event_skipped[reason] = decision_event_skipped.get(reason, 0) + 1
+                else:
+                    try:
+                        reason = append_decision_event(
+                            decision_events_path,
+                            run_id=run_id,
+                            question_id=case["id"],
+                            execution_mode=resolved_execution_mode,
+                            actual_outcome=row["actual_outcome"],
+                            actual_refusal_type=row["actual_refusal_type"],
+                            policy_rule_id=row["policy_rule_id"],
+                            decision_source=row["decision_source"],
+                            tool_trace=row["tool_trace"],
+                        )
+                        if reason is None:
+                            decision_event_written += 1
+                        else:
+                            decision_event_skipped[reason] = decision_event_skipped.get(reason, 0) + 1
+                    except (OSError, TypeError, ValueError):
+                        decision_event_errors += 1
     refusal_summary = refusal_rate(refusal_rows)
-    return {"completed": completed, "failed": failed, "unscorable": unscorable,
-            "refusal_summary": refusal_summary}
+    summary = {"completed": completed, "failed": failed, "unscorable": unscorable,
+               "refusal_summary": refusal_summary}
+    if step_events_path is not None:
+        summary["step_event_log"] = {
+            "written": event_written,
+            "skipped": event_skipped,
+            "errors": event_errors,
+        }
+    if decision_events_path is not None:
+        summary["decision_event_log"] = {
+            "written": decision_event_written,
+            "skipped": decision_event_skipped,
+            "errors": decision_event_errors,
+        }
+    return summary
 
 
 def main() -> int:
@@ -263,7 +425,18 @@ def main() -> int:
                         help="Maximum seconds for each adapter call (default: 180)")
     parser.add_argument("--dry-run", action="store_true", help="Validate testset only; never imports or calls an agent")
     parser.add_argument("--agent-adapter", help="Explicit module:function adapter implementing the documented contract")
+    parser.add_argument("--step-events-output", type=Path,
+                        help="Append captured, redacted tool events to this JSONL file")
+    parser.add_argument("--decision-events-output", type=Path,
+                        help="Append structured runtime decisions to a separate JSONL file")
+    parser.add_argument("--execution-mode", choices=("real", "mock", "unit_test", "synthetic"),
+                        help="Optional consistency check against the selected adapter's registered provenance")
     args = parser.parse_args()
+    has_event_output = args.step_events_output is not None or args.decision_events_output is not None
+    if args.dry_run and (has_event_output or args.execution_mode is not None):
+        parser.error("--dry-run cannot emit events")
+    if not has_event_output and args.execution_mode is not None:
+        parser.error("--execution-mode requires event output")
     try:
         cases = load_testset(args.testset)
     except (OSError, ValueError) as exc:
@@ -282,11 +455,20 @@ def main() -> int:
     except Exception as exc:
         parser.error(f"Cannot load agent adapter: {exc}")
     try:
-        summary = asyncio.run(evaluate(cases, adapter, args.output, args.case_timeout))
+        summary = asyncio.run(evaluate(
+            cases, adapter, args.output, args.case_timeout,
+            step_events_path=args.step_events_output,
+            decision_events_path=args.decision_events_output,
+            execution_mode=args.execution_mode,
+        ))
     except ValueError as exc:
         parser.error(str(exc))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 1 if summary["failed"] else 0
+    event_errors = (
+        summary.get("step_event_log", {}).get("errors", 0)
+        + summary.get("decision_event_log", {}).get("errors", 0)
+    )
+    return 1 if summary["failed"] or event_errors else 0
 
 
 if __name__ == "__main__":

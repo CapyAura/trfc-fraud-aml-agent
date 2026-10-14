@@ -38,6 +38,29 @@ def test_completed_case_schema_allows_unavailable_usage():
     assert validate_case(case_row()) == []
 
 
+def test_policy_decision_status_rejects_untrusted_or_inconsistent_metadata():
+    needs_info = case_row()
+    needs_info.update({
+        "policy_decision_status": "needs_information",
+        "policy_reason_code": "payment_method_provenance_unverified",
+        "status": "unscorable",
+        "actual_outcome": None,
+        "actual_refusal_type": None,
+        "policy_rule_id": None,
+        "decision_source": None,
+    })
+    assert validate_case(needs_info) == []
+
+    forged_decision = dict(needs_info)
+    forged_decision["actual_outcome"] = "refusal"
+    forged_decision["actual_refusal_type"] = "i"
+    assert "needs_information policy status cannot contain decision metadata" in validate_case(forged_decision)
+
+    incomplete_decision = case_row()
+    incomplete_decision["policy_decision_status"] = "decided"
+    assert "decided policy status needs a structured decision_source" in validate_case(incomplete_decision)
+
+
 def test_usage_keeps_calls_but_allows_unknown_provider_token_counts():
     row = case_row()
     row["usage"] = {

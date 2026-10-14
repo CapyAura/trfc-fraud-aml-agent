@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ CASE_REQUIRED = {
 }
 USAGE_KEYS = {"calls", "prompt_tokens", "completion_tokens", "max_prompt"}
 EXECUTION_MODES = {"real", "mock", "dry_run", "unit_test", "synthetic"}
+_SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z", re.ASCII)
 
 
 def _timestamp(value: Any) -> bool:
@@ -121,6 +123,22 @@ def validate_case(row: dict[str, Any]) -> list[str]:
         errors.append("actual_refusal_type must be null, i, or ii")
     if row.get("actual_refusal_type") is not None and row.get("actual_outcome") != "refusal":
         errors.append("actual_refusal_type is only applicable to a refusal outcome")
+    policy_status = row.get("policy_decision_status")
+    if ("policy_decision_status" in row
+            and policy_status not in (None, "decided", "needs_information")):
+        errors.append("policy_decision_status must be null, decided, or needs_information")
+    if ("policy_reason_code" in row and row["policy_reason_code"] is not None
+            and not isinstance(row["policy_reason_code"], str)):
+        errors.append("policy_reason_code must be a string or null")
+    decision_fields = ("actual_outcome", "actual_refusal_type", "policy_rule_id", "decision_source")
+    if policy_status == "needs_information" and any(row.get(field) is not None for field in decision_fields):
+        errors.append("needs_information policy status cannot contain decision metadata")
+    if policy_status == "decided":
+        if row.get("status") != "completed" or row.get("actual_outcome") not in ("answer", "refusal"):
+            errors.append("decided policy status needs a completed row with an actual outcome")
+        source = row.get("decision_source")
+        if not isinstance(source, str) or not _SAFE_IDENTIFIER.fullmatch(source):
+            errors.append("decided policy status needs a structured decision_source")
     for field in ("contexts", "claims"):
         value = row.get(field)
         if value is not None and (not isinstance(value, list)
@@ -139,7 +157,7 @@ def validate_case(row: dict[str, Any]) -> list[str]:
 
 
 def validate_event(row: dict[str, Any]) -> list[str]:
-    """Validate the C4 per-step record contract; it is not emitted by run_eval."""
+    """Validate the C4 tool-call event contract emitted by the evaluator."""
     required = {"record_type", "timestamp", "run_id", "question_id", "scenario",
                 "execution_mode", "step", "tool", "args", "result", "usage"}
     errors = []
@@ -170,8 +188,63 @@ def validate_event(row: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_decision_event(row: dict[str, Any]) -> list[str]:
+    """Validate a separate structured decision record, not a tool-call event."""
+    required = {
+        "record_type", "timestamp", "run_id", "question_id", "execution_mode",
+        "actual_outcome", "actual_refusal_type", "policy_rule_id", "decision_source",
+        "tool_trace_status", "tool_call_count", "business_outcome_verified",
+    }
+    errors = []
+    missing = required - row.keys()
+    if missing:
+        errors.append(f"missing fields: {', '.join(sorted(missing))}")
+    if row.get("record_type") != "decision_event":
+        errors.append("record_type must be decision_event")
+    if not _timestamp(row.get("timestamp")):
+        errors.append("timestamp must be ISO-8601 with timezone")
+    for field in ("run_id", "question_id"):
+        if not isinstance(row.get(field), str) or not row[field].strip():
+            errors.append(f"{field} must be a non-empty string")
+    if row.get("execution_mode") not in tuple(EXECUTION_MODES):
+        errors.append("execution_mode must identify real, mock, dry_run, unit_test, or synthetic")
+    if row.get("actual_outcome") not in ("answer", "refusal"):
+        errors.append("actual_outcome must be answer or refusal")
+    refusal_type = row.get("actual_refusal_type")
+    if refusal_type not in (None, "i", "ii"):
+        errors.append("actual_refusal_type must be null, i, or ii")
+    if row.get("actual_outcome") == "refusal" and refusal_type not in ("i", "ii"):
+        errors.append("refusal decision needs actual_refusal_type i or ii")
+    if row.get("actual_outcome") == "answer" and refusal_type is not None:
+        errors.append("answer decision cannot have actual_refusal_type")
+    rule_id = row.get("policy_rule_id")
+    if rule_id is not None and (
+        not isinstance(rule_id, str) or _SAFE_IDENTIFIER.fullmatch(rule_id) is None
+    ):
+        errors.append("policy_rule_id must be null or a non-empty identifier")
+    source = row.get("decision_source")
+    if not isinstance(source, str) or _SAFE_IDENTIFIER.fullmatch(source) is None:
+        errors.append("decision_source must be a safe structured identifier")
+    trace_status = row.get("tool_trace_status")
+    count = row.get("tool_call_count")
+    if trace_status not in ("complete", "unavailable"):
+        errors.append("tool_trace_status must be complete or unavailable")
+    if trace_status == "complete" and (type(count) is not int or count < 0):
+        errors.append("complete tool trace needs a non-negative tool_call_count")
+    if trace_status == "unavailable" and count is not None:
+        errors.append("unavailable tool trace must have null tool_call_count")
+    if row.get("business_outcome_verified") is not False:
+        errors.append("decision event cannot claim a verified business outcome")
+    return errors
+
+
 def validate_file(path: Path, kind: str) -> list[str]:
-    validator = validate_event if kind == "event" else validate_case
+    validators = {
+        "case": validate_case,
+        "event": validate_event,
+        "decision": validate_decision_event,
+    }
+    validator = validators[kind]
     errors: list[str] = []
     try:
         with path.open(encoding="utf-8") as stream:
@@ -195,7 +268,7 @@ def validate_file(path: Path, kind: str) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--kind", choices=("case", "event"), required=True)
+    parser.add_argument("--kind", choices=("case", "event", "decision"), required=True)
     parser.add_argument("paths", nargs="+", type=Path)
     args = parser.parse_args(argv)
     files = []

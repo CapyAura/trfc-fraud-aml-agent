@@ -11,6 +11,7 @@ Chạy: python -m trfc.mcp_server.server
 """
 
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
 import json
 import logging
 import sys
@@ -31,7 +32,9 @@ log = logging.getLogger(__name__)
 def _to_json_serializable(obj: Any) -> Any:
     """Helper chuyển đổi Dataclass hoặc object sang định dạng JSON-serializable."""
     if is_dataclass(obj):
-        return asdict(obj)
+        return _to_json_serializable(asdict(obj))
+    if isinstance(obj, datetime):
+        return obj.isoformat()
     if isinstance(obj, list):
         return [_to_json_serializable(item) for item in obj]
     if isinstance(obj, dict):
@@ -60,12 +63,27 @@ def build_server() -> MCPServer:
         return json.dumps(_to_json_serializable(res), ensure_ascii=False)
 
     # 3. get_account_risk_status (Đọc - Bước Verify)
+
     @mcp.tool()
     def get_account_risk_status(account_id: str) -> str:
-        """BƯỚC VERIFY: Đọc trạng thái rủi ro hiện tại và danh sách giao dịch bị gắn cờ từ state.db."""
-        log.info(f"Tool get_account_risk_status called: account_id='{account_id}'")
-        res = impl.get_account_risk_status(account_id=account_id)
-        return json.dumps(_to_json_serializable(res), ensure_ascii=False)
+        """Đọc trạng thái rủi ro hiện tại của tài khoản."""
+        log.info(
+            "Tool get_account_risk_status called: account_id=%r",
+            account_id,
+        )
+        try:
+            res = impl.get_account_risk_status(account_id=account_id)
+            return json.dumps(
+                _to_json_serializable(res),
+                ensure_ascii=False,
+            )
+        except Exception:
+            log.exception(
+                "get_account_risk_status failed for account_id=%r",
+                account_id,
+            )
+            raise
+
 
     # 4. freeze_account_temporarily (Ghi - Side Effect)
     @mcp.tool()

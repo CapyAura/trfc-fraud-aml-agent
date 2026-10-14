@@ -37,12 +37,16 @@ class AgentRunResult:
     answer: str | None = None
     actual_outcome: str | None = None
     actual_refusal_type: str | None = None
+    policy_rule_id: str | None = None
+    decision_source: str | None = None
     contexts: list[str] | None = None
     claims: list[str] | None = None
     tool_trace: list[dict[str, Any]] | None = None
     usage: dict[str, int | None] | None = None
     status: str = "failed"
     error: str | None = None
+    policy_decision_status: str | None = None
+    policy_reason_code: str | None = None
 
 
 class _UsageTotals:
@@ -441,27 +445,14 @@ async def run_detailed(question: str, *, model_request=call_llm_async) -> AgentR
         )
 
 
-async def run(question: str) -> dict[str, Any]:
-    """Trả về toàn bộ chi tiết execution dưới dạng dict để dễ đánh giá."""
+async def run(question: str) -> str:
+    """Backward-compatible string API; detailed callers can use run_detailed()."""
     result = await run_detailed(question)
-    
-    # Có thể tự động gắn actual_outcome nếu chưa có
-    if result.status == "completed":
-        result.actual_outcome = "answered"
-    else:
-        result.actual_outcome = "error"
-        
-    return {
-        "status": result.status,
-        "answer": result.answer,
-        "actual_outcome": result.actual_outcome,
-        "actual_refusal_type": result.actual_refusal_type,
-        "contexts": result.contexts,
-        "claims": result.claims,
-        "tool_trace": result.tool_trace,
-        "usage": result.usage,
-        "error": result.error,
-    }
+
+    if result.status == "failed":
+        return f"Error: {result.error or 'Unknown error'}"
+
+    return result.answer or ""
 
 
 def main() -> int:
