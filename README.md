@@ -51,7 +51,8 @@ không cần cấu hình tay. Không xem demo là offline check.
 **Trạng thái xác minh gần nhất của working tree:** full offline pytest suite đã pass
 trên Python 3.13.5 bằng `.venv` của dự án: adapter tests **19 passed**, focused
 regression suite (`test_tools` + `test_native_tool_calling` + `test_client2` +
-`test_db_isolation`) **76 passed**, full suite **403 passed, 0 skipped**.
+`test_db_isolation`) **76 passed**, full suite (`pytest -q`, gồm cả `test_tools.py`) **407 passed,
+0 skipped** — `make test` loại `tests/test_tools.py` nên báo **403 passed**.
 `git diff --check` không có whitespace error; Git chỉ báo LF-to-CRLF working-copy
 notices. Các kết quả trên chỉ xác nhận automated test coverage. Người dùng đã
 báo cáo riêng MCP subprocess isolation PASS trên DB tạm; lần triển khai policy

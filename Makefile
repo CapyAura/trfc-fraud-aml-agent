@@ -45,10 +45,15 @@ demo:
 # của phiên thành CSV/SVG rồi so với bản đã commit, (3) chạy lại semantic gate.
 # Lệch một ô là fail. Muốn chạy lại agent thật thì dùng `make eval-live`.
 eval validate-testset:
-	$(PY) -m eval.run_eval --dry-run
-	$(PY) -m eval.report --input $(SESSION)/evaluation.jsonl --output-dir .test-tmp/eval-repro --rescore
-	$(PY) -c "import filecmp,sys; from pathlib import Path; a,b=Path('eval/reports'),Path('.test-tmp/eval-repro'); bad=[f.name for f in sorted(b.iterdir()) if not filecmp.cmp(f, a/f.name, shallow=False)]; print('LECH: '+', '.join(bad) if bad else 'eval-repro: khop tung byte voi eval/reports'); sys.exit(1 if bad else 0)"
-	$(PY) -m eval.semantic_gate $(SESSION) --require-events --step-events $(SESSION)/step_events.jsonl --decision-events $(SESSION)/decision_events.jsonl --output .test-tmp/eval-gate.json
+	@echo [1/3] Validate testset schema (no scores yet - this step is not the evaluation)
+	@$(PY) -m eval.run_eval --dry-run
+	@echo.
+	@echo [2/3] Rescore real run $(SESSION) and byte-compare with eval/reports
+	@$(PY) -m eval.report --input $(SESSION)/evaluation.jsonl --output-dir .test-tmp/eval-repro --rescore
+	@$(PY) -c "import filecmp,sys; from pathlib import Path; a,b=Path('eval/reports'),Path('.test-tmp/eval-repro'); bad=[f.name for f in sorted(b.iterdir()) if not filecmp.cmp(f, a/f.name, shallow=False)]; print('LECH: '+', '.join(bad) if bad else 'eval-repro: khop tung byte voi eval/reports'); sys.exit(1 if bad else 0)"
+	@echo.
+	@echo [3/3] Re-run semantic gate (citations, refusals, write+verify)
+	@$(PY) -m eval.semantic_gate $(SESSION) --require-events --step-events $(SESSION)/step_events.jsonl --decision-events $(SESSION)/decision_events.jsonl --output .test-tmp/eval-gate.json
 
 # Live evaluation: calls the agent + LLM through MCP and rewrites the logs that
 # feed `make report`. Needs credentials/network and an isolated TRFC_STATE_DB

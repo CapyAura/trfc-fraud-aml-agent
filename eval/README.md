@@ -299,8 +299,9 @@ Measured on 2026-10-18 on Python 3.13.5 with the project `.venv`:
 
 - Adapter tests: **19 passed** (`.venv\Scripts\python.exe -m pytest -q tests/test_agent_adapter.py`).
 - Focused regression (`test_tools` + `test_native_tool_calling` + `test_client2` + `test_db_isolation`): **76 passed**.
-- Full suite: **403 passed, 0 skipped** (`.venv\Scripts\python.exe -m pytest -q --ignore=tests/test_tools.py`).
-- `tests/test_tools.py` is excluded by the project test target; it collects 4 tests and resets `data/state.db`.
+- Full suite: **407 passed, 0 skipped** (`.venv\Scripts\python.exe -m pytest -q`). The `make test`
+  target excludes `tests/test_tools.py` and reports **403 passed**.
+- `tests/test_tools.py` is excluded by the `make test` target; it collects 4 tests and resets `data/state.db`.
 - `git diff --check` completed without whitespace errors; Git emitted only LF-to-CRLF working-copy notices.
 
 The tests establish automated coverage; they do not by themselves establish provider behavior. The committed staging run above is the live-execution evidence. `claims` is still not produced by the runtime, so faithfulness stays unscorable, and the `AgentRunResult` interface remains provisional pending cross-owner confirmation. No production database operation is claimed.

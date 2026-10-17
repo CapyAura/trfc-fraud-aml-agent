@@ -919,7 +919,8 @@ def section_6(document: Document) -> None:
     para(
         document,
         "Đã xác minh bằng log hoặc bằng lần chạy lại trong phiên này: bộ unit test đạt "
-        "403 passed, 0 skipped trên Python 3.13.5; semantic gate trả overall = PASS với 12/12 "
+        "407 passed, 0 skipped trên Python 3.13.5 (target `make test` loại `tests/test_tools.py` nên "
+        "báo 403); semantic gate trả overall = PASS với 12/12 "
         "ca, 0 schema error, 0 semantic error, 0 unverified check; và cặp write → read-back của "
         "q05 có mặt trong step_events.jsonl. Chưa xác minh và báo cáo không claim: model/provider "
         "của lần chạy (log không lưu trường này — qwen/qwen3.8-27b trong llm.py:24 chỉ là default "

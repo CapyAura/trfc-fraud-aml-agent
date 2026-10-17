@@ -406,7 +406,7 @@ def test_dry_run_does_not_load_adapter_or_write_evaluation(tmp_path, monkeypatch
         "--output", str(output),
     ])
     assert main() == 0
-    assert "DRY RUN" in capsys.readouterr().out
+    assert "VALIDATE ONLY" in capsys.readouterr().out
     assert not output.exists()
 
 

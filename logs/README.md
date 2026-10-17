@@ -35,10 +35,11 @@ Hai phiên PASS **không phải bản sao của nhau**. Cùng 12 câu hỏi như
   (`"thiếu dữ liệu gốc không được kết luận khóa tài khoản Điều 7 Điều 8"` → lấy DOC0005) nên câu
   trả lời loại ii đúng nhưng không trích DOC0006. Đây là phương sai phía model, không phải lỗi
   hạ tầng — cùng phiên `201308` với cùng testset vẫn PASS. Giữ nguyên để đối chiếu.
-- `logs/staging_20261018_034302_FAILED_stderr_abort/` — pipeline dừng ngay bước đầu vì
-  `$ErrorActionPreference = "Stop"` giết script ở dòng INFO đầu tiên của MCP server (server ghi
-  log ra stderr đúng thiết kế). `evaluation.jsonl` rỗng 0 byte. Đã sửa runner sang `"Continue"`;
-  giữ thư mục này làm dấu vết của lỗi đã khắc phục.
+- Lần chạy `staging_20261018_034302` đã dừng ngay bước đầu vì `$ErrorActionPreference = "Stop"`
+  giết script ở dòng INFO đầu tiên của MCP server (server ghi log ra stderr đúng thiết kế), nên
+  `evaluation.jsonl` rỗng 0 byte. Thư mục đó đã bị xoá — nó không chứa dữ liệu nào để đối chiếu;
+  dấu vết còn lại là runner đã sửa sang `"Continue"`, và `staging_20261018_034518` là lần chạy
+  kế tiếp chạy hết 12/12 câu.
 
 ## Chạy lại một phiên
 

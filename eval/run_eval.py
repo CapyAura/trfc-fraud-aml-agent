@@ -516,7 +516,7 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if args.dry_run:
-        print(f"DRY RUN: valid testset ({len(cases)} cases); no agent/API called and no evaluation scores produced.")
+        print(f"VALIDATE ONLY: testset hop le ({len(cases)} cases). Buoc nay khong goi agent/API va khong sinh diem — diem duoc tai lap o buoc 2-3.")
         return 0
     if not args.agent_adapter:
         parser.error("Real evaluation is unavailable: supply --agent-adapter module:function after A/B stabilize the runtime result interface. No dummy answers are used.")

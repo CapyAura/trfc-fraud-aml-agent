@@ -404,7 +404,7 @@ Hai ca `Answer Correctness = False` có **hai nguyên nhân khác nhau** và ph�
 
 Báo cáo tuân thủ nguyên tắc trung thực học thuật theo đúng hiện trạng hệ thống:
 * **Các nội dung ĐÃ ĐƯỢC XÁC MINH bằng chứng thật:**
-  1. Bộ unit test tự động đạt **403 passed, 0 skipped** trên môi trường Python **3.13.5** (bao gồm 4 bài test gọi tool ở `tests/test_tools.py`, các bài test evaluation metrics ở `tests/test_eval.py`, và các bài test cách ly database subprocess ở `tests/test_db_isolation.py`).
+  1. Bộ unit test tự động đạt **407 passed, 0 skipped** trên môi trường Python **3.13.5** (bao gồm 4 bài test gọi tool ở `tests/test_tools.py`, các bài test evaluation metrics ở `tests/test_eval.py`, và các bài test cách ly database subprocess ở `tests/test_db_isolation.py`).
   2. Phiên chạy Staging độc lập [`logs/staging_20261017_201308/`](logs/staging_20261017_201308/) đạt **PASS 100% trên Semantic Gate** với đủ 12 ca kiểm thử, ghi nhận đầy đủ `step_events.jsonl`, `decision_events.jsonl`, `evaluation.csv` và biểu đồ SVG.
   3. Cơ chế cách ly ghi an toàn: Quá trình chạy thử nghiệm chỉ thao tác trên database tạm thời (đường dẫn ngoài repo, đặt qua biến môi trường `TRFC_STATE_DB`), bảo toàn tuyệt đối database gốc `data/state.db` với SHA256 không đổi: `A86FCA5B32A0477CB1A511F57516AC991857FB7EF4F5836F915C685687E7E1A6`.
 * **Các giới hạn kỹ thuật (Chưa xác minh):**
@@ -457,15 +457,15 @@ hoá về cắt theo đoạn). Metadata filter `tier` mới có **đúng một**
 
 ### Bảng đối soát tài khoản Git trên Repository
 
-Tính đến phiên bản chốt, kho lưu trữ ghi nhận tổng cộng **71 commits** phân bổ theo các tài khoản Git:
+Tính đến phiên bản chốt, kho lưu trữ ghi nhận tổng cộng **72 commits** phân bổ theo các tài khoản Git:
 
 | Tài khoản Git | Số lượng Commit | Vai trò tương ứng trong đồ án |
 |---|:---:|---|
 | **Do Ngo** | 38 commits | Thành viên B (Phát triển chính ReAct Loop, Tools, MCP Server và Decision Prompt) |
-| **CapyCoder** | 14 commits | Thành viên A (Soạn thảo Corpus, RAG, Chunking, và tài liệu đặc tả) |
+| **CapyCoder** | 15 commits | Thành viên A (Soạn thảo Corpus, RAG, Chunking, và tài liệu đặc tả) |
 | **Penguin-cell34** | 12 commits | Thành viên C (Xây dựng Evaluator, Semantic Gate, Staging Runner, và sửa lỗi tích hợp) |
 | **Do Coding** | 7 commits | Thành viên B (Tài khoản phụ hỗ trợ commit các module MCP và Tool schema) |
-| **Tổng cộng** | **71 commits** | **Ghi chú bắt buộc:** Tài khoản `Do Ngo` và `Do Coding` thuộc cùng Thành viên B, đảm bảo dự án có đúng 3 thành viên thực hiện độc lập. |
+| **Tổng cộng** | **72 commits** | **Ghi chú bắt buộc:** Tài khoản `Do Ngo` và `Do Coding` thuộc cùng Thành viên B, đảm bảo dự án có đúng 3 thành viên thực hiện độc lập. |
 
 ## §9 — Phụ lục
 

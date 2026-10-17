@@ -14,7 +14,7 @@
 | T1 | Gộp 3 report → `report.docx` (8–9 trang, 9 mục) | **C** chủ trì | 🔴 **CÓ** | ❌ → [FIX_C.md](FIX_C.md#t1--ghép-reportdocx--chặn-nộp) |
 | T2 | `make eval` chỉ `--dry-run`, không tái lập số liệu | **C** | 🟡 Không | ❌ → [FIX_C.md](FIX_C.md#t2--make-eval-không-tái-lập-được-số-liệu) |
 | T3b | `eval/README.md` còn bộ số cũ + câu "No genuine run logs" | **C** | 🟡 Không | ❌ → [FIX_C.md](FIX_C.md#t3b--evalreadmemd-còn-bộ-số-cũ) |
-| T5 | Testset chưa có câu dùng `tier` → không claim được bonus +1 | **C** | ➖ Không | ❌ → [FIX_C.md](FIX_C.md#t5--bonus-1-metadata-filter) |
+| ~~T5~~ | ~~Testset chưa có câu dùng `tier`~~ | ~~C~~ | — | ✅ xong (q04 có `expected_tier: 2`) |
 | F4b | Assert còn nhánh `or` làm test vô nghĩa | **C** | ➖ Không | ❌ → [FIX_C.md](FIX_C.md#f4b--assert-có-nhánh-or-làm-test-vô-nghĩa) |
 | ~~T4a~~ | ~~`REPORT_B_.md:118` TODO provider/model~~ | ~~B~~ | — | ✅ xong |
 | ~~T4b~~ | ~~`REPORT.md:194` TODO dense-vs-hybrid~~ | ~~A~~ | — | ✅ xong |
@@ -35,8 +35,8 @@ Giữ lại để đối chiếu lúc bảo vệ:
 - **Side effect + verify** — `semantic_gate_result.json` → `freeze_write_success` / `freeze_verify_success` / `flag_write_success` / `flag_verify_success` đều `true`. Trace thật đã dán ở `REPORT_B_.md:86-94`.
 - **MCP** — 5 tool (2 ghi), stdio, log ra stderr, client discover động.
 - **Bảo mật** — `.env` ignored, `Ref/` untracked, không có key trong repo.
-- **Tests** — 368 passed, 0 skipped (Python 3.13.5).
-- **README số liệu** — đã sửa (Python 3.13.5, 19 / 76 / 368 passed).
+- **Tests** — 407 passed, 0 skipped (Python 3.13.5); `make test` loại `tests/test_tools.py` → 403 passed.
+- **README số liệu** — đã sửa (Python 3.13.5, 19 / 76 / 407 passed, 0 skipped).
 - **Commit hash §8** — 12 hash đã đối chiếu `git log -1`, đều tồn tại và đúng người.
 
 ```

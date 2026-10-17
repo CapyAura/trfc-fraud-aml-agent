@@ -32,8 +32,9 @@ giải thích được từng dòng (luật bảo vệ: "SV phải giải thích
   `[{index:1, satisfied:true}, {index:2, satisfied:false}]`. Phiên đó không tồn tại; trường
   `marker_results` chỉ được thêm ở commit `68a7a22`, **sau** phiên `201308`, nên log đã commit không có.
   Đã viết lại thành **giới hạn bằng chứng** trung thực.
-- **`:140`** — test count: **403 passed, 0 skipped**, Python **3.13.5** (không phải 401/1 skipped/3.14.7).
-- **`:159-167`** — bảng commit: **71** tổng; Do Ngo 38 / CapyCoder 14 / Penguin-cell34 12 / Do Coding 7.
+- **`:140`** — test count: **407 passed, 0 skipped** (`pytest -q` đầy đủ), Python **3.13.5**;
+  `make test` loại `tests/test_tools.py` nên báo **403**.
+- **`:159-167`** — bảng commit: **72** tổng; Do Ngo 38 / CapyCoder 15 / Penguin-cell34 12 / Do Coding 7.
 - **`:185`** — bullet bonus metadata filter: đã dẫn đúng `logs/staging_20261017_201308/`.
 
 ### C2 — Đếm số trang `report.docx`
