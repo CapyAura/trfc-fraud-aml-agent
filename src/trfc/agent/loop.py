@@ -1,6 +1,9 @@
 """Groq native tool-calling loop over the dynamically discovered MCP tools."""
 
+from collections.abc import Mapping
+import copy
 from dataclasses import dataclass
+from datetime import datetime
 import asyncio
 import json
 import inspect
@@ -268,6 +271,168 @@ def _retrieved_contexts(tool_name: str, tool_result: str) -> list[str] | None:
     return contexts
 
 
+# --- Structured decision metadata (C4 contract) -----------------------------
+# The runtime never infers a decision from free-form answer text. Decision
+# fields are populated only from an explicit structured decision supplied by an
+# injected ``decision_provider`` and only after fail-closed validation below.
+# With no provider (the production default today) every field stays ``None``.
+_DECISION_OUTCOMES = frozenset({"answer", "refusal"})
+_REFUSAL_TYPES = frozenset({"i", "ii"})
+_DECISION_KEYS = frozenset({"outcome", "refusal_type", "policy_rule_id", "decision_source"})
+_SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z", re.ASCII)
+_RULE_ID = re.compile(r"(DOC\d{4})_ART(\d{2})\Z", re.ASCII)
+_CONTEXT_DOC = re.compile(r"\[Source: (DOC\d{4})\]", re.IGNORECASE)
+_WRITE_TOOLS = frozenset({"freeze_account_temporarily", "flag_suspicious_tx"})
+_VERIFY_TOOL = "get_account_risk_status"
+
+
+def _unresolved(reason_code: str) -> dict[str, str | None]:
+    return {
+        "actual_outcome": None, "actual_refusal_type": None, "policy_rule_id": None,
+        "decision_source": None, "policy_decision_status": "needs_information",
+        "policy_reason_code": reason_code,
+    }
+
+
+def _parse_time(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def write_verification_status(tool_trace: list[dict[str, Any]] | None) -> str:
+    """Check Freeze/Flag side effects against LATER reads of ``get_account_risk_status``.
+
+    Returns ``not_applicable`` (no successful write), ``verified`` or ``unverified``.
+    It only inspects calls already in the trace; it never issues a tool call. A
+    freeze is verified by a later read of the same account showing
+    ``frozen=True`` with ``checked_at`` after ``frozen_at``; a flag is verified by
+    a later read whose ``flagged_tx_ids`` contains the flagged transaction.
+    """
+    if not tool_trace:
+        return "not_applicable"
+    status = "not_applicable"
+    for index, event in enumerate(tool_trace):
+        if event.get("tool_name") not in _WRITE_TOOLS or event.get("status") != "completed":
+            continue
+        arguments = event.get("arguments") if isinstance(event.get("arguments"), dict) else {}
+        verified = False
+        for later in tool_trace[index + 1:]:
+            if later.get("tool_name") != _VERIFY_TOOL or later.get("status") != "completed":
+                continue
+            try:
+                risk = json.loads(later.get("result"))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(risk, dict):
+                continue
+            if event["tool_name"] == "freeze_account_temporarily":
+                account_id = arguments.get("account_id")
+                frozen_at = _parse_time(risk.get("frozen_at"))
+                checked_at = _parse_time(risk.get("checked_at"))
+                verified = (
+                    isinstance(account_id, str)
+                    and risk.get("account_id") == account_id
+                    and risk.get("frozen") is True
+                    and frozen_at is not None and checked_at is not None
+                    and checked_at > frozen_at
+                )
+            else:
+                flagged = risk.get("flagged_tx_ids")
+                tx_id = arguments.get("tx_id")
+                verified = isinstance(tx_id, str) and isinstance(flagged, list) and tx_id in flagged
+            if verified:
+                break
+        if not verified:
+            return "unverified"
+        status = "verified"
+    return status
+
+
+def _rule_is_evidenced(rule_id: Any, contexts: list[str] | None) -> bool:
+    """A rule ID is accepted only if its article text was actually retrieved."""
+    if not isinstance(rule_id, str) or not contexts:
+        return False
+    match = _RULE_ID.fullmatch(rule_id)
+    if match is None:
+        return False
+    doc_id, article = match.group(1), int(match.group(2))
+    article_marker = re.compile(rf"Điều\s+0*{article}\b", re.IGNORECASE)
+    for context in contexts:
+        source = _CONTEXT_DOC.match(context)
+        if source and source.group(1).upper() == doc_id and article_marker.search(context):
+            return True
+    return False
+
+
+def resolve_decision(
+    raw: Any, *, contexts: list[str] | None, tool_trace: list[dict[str, Any]] | None
+) -> dict[str, str | None]:
+    """Validate an explicit structured decision; fail closed on anything doubtful.
+
+    * unknown outcome / malformed shape / missing or unsafe ``decision_source``
+      -> ``needs_information`` with every decision field ``None``;
+    * ``refusal_type`` on an ``answer`` -> rejected (contradictory);
+    * refusal without a valid ``i``/``ii`` -> outcome kept, subtype ``None``;
+    * ``policy_rule_id`` kept only if that article was retrieved this run, else
+      ``None`` (never defaulted or guessed);
+    * a successful Freeze/Flag without independent verification -> rejected.
+    """
+    if not isinstance(raw, Mapping):
+        return _unresolved("decision_malformed")
+    if set(raw) - _DECISION_KEYS:
+        return _unresolved("decision_has_unsupported_fields")
+    outcome = raw.get("outcome")
+    if not isinstance(outcome, str) or outcome not in _DECISION_OUTCOMES:
+        return _unresolved("decision_outcome_invalid")
+    source = raw.get("decision_source")
+    if not isinstance(source, str) or _SAFE_IDENTIFIER.fullmatch(source) is None:
+        return _unresolved("decision_source_invalid")
+    refusal_type = raw.get("refusal_type")
+    if outcome == "answer" and refusal_type is not None:
+        return _unresolved("refusal_type_not_applicable_to_answer")
+    if write_verification_status(tool_trace) == "unverified":
+        return _unresolved("write_verification_missing")
+
+    reasons = []
+    if outcome == "refusal" and not (isinstance(refusal_type, str) and refusal_type in _REFUSAL_TYPES):
+        refusal_type = None
+        reasons.append("refusal_type_unavailable")
+    rule_id = raw.get("policy_rule_id")
+    if rule_id is not None and not _rule_is_evidenced(rule_id, contexts):
+        rule_id = None
+        reasons.append("policy_rule_id_unverified")
+    return {
+        "actual_outcome": outcome, "actual_refusal_type": refusal_type,
+        "policy_rule_id": rule_id, "decision_source": source,
+        "policy_decision_status": "decided",
+        "policy_reason_code": ",".join(reasons) or None,
+    }
+
+
+async def _apply_decision(result: AgentRunResult, provider: Any, contexts_ok: bool) -> None:
+    """Call the injected provider once and copy validated fields onto ``result``."""
+    contexts = result.contexts if contexts_ok else None
+    try:
+        raw = provider({
+            "answer": result.answer,
+            "contexts": copy.deepcopy(contexts),
+            "tool_trace": copy.deepcopy(result.tool_trace),
+        })
+        if inspect.isawaitable(raw):
+            raw = await raw
+        fields = resolve_decision(raw, contexts=contexts, tool_trace=result.tool_trace)
+    except Exception:
+        # Do not retain the raw exception body: it may contain customer data.
+        fields = _unresolved("decision_provider_failed")
+    for name, value in fields.items():
+        setattr(result, name, value)
+
+
 async def run_with_session(
     question: str,
     session: Any,
@@ -275,6 +440,7 @@ async def run_with_session(
     model_request=call_llm_async,
     max_steps: int | None = None,
     system_prompt: str | None = None,
+    decision_provider=None,
 ) -> AgentRunResult:
     """Run the tool loop with injectable model/session collaborators."""
     # Trace capture is unavailable until MCP discovery completes. Once it does,
@@ -337,6 +503,8 @@ async def run_with_session(
                 result.answer = content
                 result.status = "completed"
                 result.usage = usage_totals.as_dict()
+                if decision_provider is not None:
+                    await _apply_decision(result, decision_provider, contexts_capture_complete)
                 return result
 
             assistant_entry: dict[str, Any] = {"role": "assistant", "tool_calls": []}
@@ -426,7 +594,9 @@ async def run_with_session(
             result.contexts = None
 
 
-async def run_detailed(question: str, *, model_request=call_llm_async) -> AgentRunResult:
+async def run_detailed(
+    question: str, *, model_request=call_llm_async, decision_provider=None
+) -> AgentRunResult:
     """Run against the project's stdio MCP server and return structured status."""
     try:
         server_params = StdioServerParameters(
@@ -438,7 +608,10 @@ async def run_detailed(question: str, *, model_request=call_llm_async) -> AgentR
         async with stdio_client(server_params) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
-                return await run_with_session(question, session, model_request=model_request)
+                return await run_with_session(
+                    question, session, model_request=model_request,
+                    decision_provider=decision_provider,
+                )
     except Exception as exc:
         return AgentRunResult(
             tool_trace=None, error=f"MCP connection failed: {type(exc).__name__}: {exc}"
@@ -456,22 +629,22 @@ async def run(question: str) -> str:
 
 
 def main() -> int:
-   def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if len(sys.argv) < 2:
         print('Usage: python -m trfc.agent.loop "question"', file=sys.stderr)
         return 2
 
-    # Chạy hàm lấy chi tiết result
     result = asyncio.run(run_detailed(" ".join(sys.argv[1:])))
-    
-    # In toàn bộ JSON kết quả ra stdout
     output_dict = {
         "status": result.status,
         "answer": result.answer,
         "actual_outcome": result.actual_outcome,
         "actual_refusal_type": result.actual_refusal_type,
+        "policy_rule_id": result.policy_rule_id,
+        "decision_source": result.decision_source,
+        "policy_decision_status": result.policy_decision_status,
+        "policy_reason_code": result.policy_reason_code,
         "contexts": result.contexts,
         "claims": result.claims,
         "tool_trace": result.tool_trace,
@@ -480,6 +653,7 @@ def main() -> int:
     }
     print(json.dumps(output_dict, ensure_ascii=False, indent=2))
     return 0 if result.status == "completed" else 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
