@@ -24,6 +24,7 @@ from trfc.tools.state import DB_PATH_ENV, REQUIRE_ISOLATED_DB_ENV, resolve_db_pa
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 CONFIG_PATH = ROOT_DIR / "config.toml"
 PROMPT_PATH = ROOT_DIR / "prompts" / "system.txt"
+DECISION_PROMPT_PATH = ROOT_DIR / "prompts" / "decision.txt"
 
 logging.basicConfig(
     stream=sys.stderr,
@@ -119,6 +120,12 @@ def load_system_prompt() -> str:
     if PROMPT_PATH.exists():
         return PROMPT_PATH.read_text(encoding="utf-8")
     raise FileNotFoundError(f"Required system prompt not found at {PROMPT_PATH}")
+
+
+def load_decision_prompt() -> str:
+    if DECISION_PROMPT_PATH.exists():
+        return DECISION_PROMPT_PATH.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"Required decision prompt not found at {DECISION_PROMPT_PATH}")
 
 
 def mcp_server_environment() -> dict[str, str]:
@@ -286,6 +293,47 @@ _WRITE_TOOLS = frozenset({"freeze_account_temporarily", "flag_suspicious_tx"})
 _VERIFY_TOOL = "get_account_risk_status"
 
 
+# Runtime-owned tool: handled inside the loop, never sent to the MCP server and
+# never written to ``tool_trace`` (that trace lists only discovered MCP calls).
+DECISION_TOOL_NAME = "submit_decision"
+MODEL_DECISION_SOURCE = "llm.structured_tool_call"  # honest label: model-declared, unauthenticated
+_DECISION_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "outcome": {"type": "string", "enum": ["answer", "refusal"]},
+        "refusal_type": {"type": "string", "enum": ["i", "ii"]},
+        "policy_rule_id": {"type": "string"},
+    },
+    "required": ["outcome"],
+    "additionalProperties": False,
+}
+
+
+def decision_tool_schema() -> dict[str, Any]:
+    return {"type": "function", "function": {
+        "name": DECISION_TOOL_NAME,
+        "description": (
+            "Khai quyết định có cấu trúc (answer/refusal, loại từ chối i/ii, mã điều luật) "
+            "trước câu trả lời cuối. Chỉ ghi nhãn; không thực hiện hành động nào."),
+        "parameters": _DECISION_TOOL_SCHEMA,
+    }}
+
+
+def _record_decision(raw_arguments: str, submitted: list[dict[str, Any]]) -> str:
+    """Validate a ``submit_decision`` call; return the tool message for the model."""
+    try:
+        arguments = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return f"Tool error: Malformed JSON arguments: {exc}"
+    error = _validate_arguments(arguments, _DECISION_TOOL_SCHEMA)
+    if error is None and arguments.get("outcome") == "answer" and "refusal_type" in arguments:
+        error = "refusal_type only applies when outcome is refusal"
+    if error is not None:
+        return f"Tool error: {error}"
+    submitted[:] = [arguments]  # last valid declaration wins
+    return "Decision recorded."
+
+
 def _unresolved(reason_code: str) -> dict[str, str | None]:
     return {
         "actual_outcome": None, "actual_refusal_type": None, "policy_rule_id": None,
@@ -441,6 +489,7 @@ async def run_with_session(
     max_steps: int | None = None,
     system_prompt: str | None = None,
     decision_provider=None,
+    enable_decision_tool: bool = False,
 ) -> AgentRunResult:
     """Run the tool loop with injectable model/session collaborators."""
     # Trace capture is unavailable until MCP discovery completes. Once it does,
@@ -461,6 +510,8 @@ async def run_with_session(
             name = schema["function"]["name"]
             if name in by_name:
                 raise ValueError(f"MCP discovery returned duplicate tool {name!r}")
+            if enable_decision_tool and name == DECISION_TOOL_NAME:
+                raise ValueError(f"MCP tool name {name!r} is reserved by the runtime")
             by_name[name] = tool
             schemas.append(schema)
 
@@ -469,8 +520,15 @@ async def run_with_session(
         # converted back to unavailable in the finalization block below.
         result.tool_trace = []
 
+        submitted_decision: list[dict[str, Any]] = []
+        if enable_decision_tool:
+            schemas.append(decision_tool_schema())
+        if system_prompt is None:
+            system_prompt = load_system_prompt()
+            if enable_decision_tool:
+                system_prompt = f"{system_prompt.rstrip()}\n{load_decision_prompt()}"
         messages = [
-            {"role": "system", "content": system_prompt if system_prompt is not None else load_system_prompt()},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
         ]
         for step in range(1, max_steps + 1):
@@ -503,8 +561,12 @@ async def run_with_session(
                 result.answer = content
                 result.status = "completed"
                 result.usage = usage_totals.as_dict()
-                if decision_provider is not None:
-                    await _apply_decision(result, decision_provider, contexts_capture_complete)
+                provider = decision_provider
+                if provider is None and submitted_decision:
+                    declared = dict(submitted_decision[0])
+                    provider = lambda _snapshot: {**declared, "decision_source": MODEL_DECISION_SOURCE}
+                if provider is not None:
+                    await _apply_decision(result, provider, contexts_capture_complete)
                 return result
 
             assistant_entry: dict[str, Any] = {"role": "assistant", "tool_calls": []}
@@ -537,6 +599,12 @@ async def run_with_session(
             messages.append(assistant_entry)
 
             for call_id, name, raw_arguments, function in normalized_calls:
+                if enable_decision_tool and name == DECISION_TOOL_NAME:
+                    messages.append({
+                        "role": "tool", "tool_call_id": call_id,
+                        "content": _record_decision(raw_arguments, submitted_decision),
+                    })
+                    continue
                 error = None
                 tool_result_text = ""
                 status = "error"
@@ -595,7 +663,8 @@ async def run_with_session(
 
 
 async def run_detailed(
-    question: str, *, model_request=call_llm_async, decision_provider=None
+    question: str, *, model_request=call_llm_async, decision_provider=None,
+    enable_decision_tool: bool = True,
 ) -> AgentRunResult:
     """Run against the project's stdio MCP server and return structured status."""
     try:
@@ -611,6 +680,7 @@ async def run_detailed(
                 return await run_with_session(
                     question, session, model_request=model_request,
                     decision_provider=decision_provider,
+                    enable_decision_tool=enable_decision_tool,
                 )
     except Exception as exc:
         return AgentRunResult(
