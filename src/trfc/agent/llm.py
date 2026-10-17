@@ -94,7 +94,7 @@ def resolve_llm_config() -> LLMConfig:
             provider = "groq"
         else:
             raise RuntimeError(
-                "No valid LLM provider configured. Please set GROQ_API_KEY for Groq, "
+                "No valid LLM provider configured. Missing GROQ_API_KEY for Groq, "
                 "or LLM_BASE_URL and LLM_API_KEY for DeepSeek/custom OpenAI-compatible gateway, "
                 "or specify LLM_PROVIDER."
             )
