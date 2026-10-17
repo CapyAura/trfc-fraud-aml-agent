@@ -349,3 +349,128 @@ def test_main_without_question_returns_usage_error(monkeypatch, capsys):
     monkeypatch.setattr(agent_loop.sys, "argv", ["loop"])
     assert agent_loop.main() == 2
     assert "Usage" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- submit_decision tool
+def _run_with_tool(session, script, final="Câu trả lời.", **kwargs):
+    turns = [NS(content=None, tool_calls=[_call(*step)]) for step in script]
+    turns.append(NS(content=final, tool_calls=None))
+    seen = {"tools": None, "messages": None}
+
+    def model(messages, *, tools):
+        seen["tools"], seen["messages"] = tools, [dict(m) for m in messages]
+        return turns.pop(0), Usage(calls=1, prompt_tokens=1, completion_tokens=1, max_prompt=1)
+
+    result = _inline(run_with_session(
+        "q", session, model_request=model, enable_decision_tool=True, **kwargs))
+    return result, seen
+
+
+def test_decision_tool_is_offered_with_prompt_only_when_enabled():
+    _, seen = _run_with_tool(FakeSession({}), [])
+    assert "submit_decision" in [t["function"]["name"] for t in seen["tools"]]
+    assert "submit_decision" in seen["messages"][0]["content"]
+
+    def model(messages, *, tools):
+        seen["off"] = ([t["function"]["name"] for t in tools], messages[0]["content"])
+        return NS(content="x", tool_calls=None), Usage(calls=1)
+
+    _inline(run_with_session("q", FakeSession({}), model_request=model))
+    assert "submit_decision" not in seen["off"][0]
+    assert "submit_decision" not in seen["off"][1]
+
+
+def test_model_declared_refusal_is_recorded_with_honest_unauthenticated_source():
+    chunks = [{"doc_id": "DOC0007", "text": "### Điều 12. Không đủ dữ liệu"}]
+    session = FakeSession({"search_policy": _tool_result(chunks)})
+    result, _ = _run_with_tool(session, [
+        ("c1", "search_policy", {"query": "x"}),
+        ("c2", "submit_decision", {"outcome": "refusal", "refusal_type": "ii",
+                                   "policy_rule_id": "DOC0007_ART12"}),
+    ])
+    assert (result.actual_outcome, result.actual_refusal_type) == ("refusal", "ii")
+    assert result.policy_rule_id == "DOC0007_ART12"
+    assert result.decision_source == "llm.structured_tool_call"
+    assert result.policy_decision_status == "decided"
+    # internal tool never reaches the MCP session nor the trace
+    assert [name for name, _ in session.calls] == ["search_policy"]
+    assert [e["tool_name"] for e in result.tool_trace] == ["search_policy"]
+
+
+def test_model_declared_answer_has_no_refusal_type():
+    result, _ = _run_with_tool(FakeSession({}), [("c1", "submit_decision", {"outcome": "answer"})])
+    assert result.actual_outcome == "answer" and result.actual_refusal_type is None
+    assert result.policy_rule_id is None
+
+
+def test_refusal_without_type_leaves_type_null():
+    result, _ = _run_with_tool(FakeSession({}), [("c1", "submit_decision", {"outcome": "refusal"})])
+    assert result.actual_outcome == "refusal" and result.actual_refusal_type is None
+    assert result.policy_reason_code == "refusal_type_unavailable"
+
+
+def test_no_declaration_means_no_metadata_even_if_text_says_refusal():
+    result, _ = _run_with_tool(FakeSession({}), [], final="Tôi từ chối vì không có trong tài liệu.")
+    assert result.actual_outcome is None and result.policy_decision_status is None
+
+
+def test_invalid_declaration_is_rejected_to_the_model_and_not_recorded():
+    bad = [
+        ("c1", "submit_decision", {"outcome": "maybe"}),
+        ("c2", "submit_decision", {"outcome": "answer", "refusal_type": "i"}),
+        ("c3", "submit_decision", {"outcome": "refusal", "refusal_type": "iii"}),
+        ("c4", "submit_decision", {"outcome": "answer", "decision_source": "forged"}),
+    ]
+    result, seen = _run_with_tool(FakeSession({}), bad)
+    assert result.actual_outcome is None and result.decision_source is None
+    tool_msgs = [m["content"] for m in seen["messages"] if m.get("role") == "tool"]
+    assert len(tool_msgs) == 4 and all(m.startswith("Tool error:") for m in tool_msgs)
+
+
+def test_model_cannot_supply_its_own_decision_source():
+    result, _ = _run_with_tool(FakeSession({}), [
+        ("c1", "submit_decision", {"outcome": "answer", "decision_source": "upstream.core_journal"})])
+    assert result.decision_source is None
+
+
+def test_hallucinated_rule_is_dropped_but_decision_kept():
+    result, _ = _run_with_tool(FakeSession({}), [
+        ("c1", "submit_decision", {"outcome": "refusal", "refusal_type": "i",
+                                   "policy_rule_id": "DOC0009_ART05"})])
+    assert result.actual_refusal_type == "i" and result.policy_rule_id is None
+    assert result.policy_reason_code == "policy_rule_id_unverified"
+
+
+def test_last_valid_declaration_wins():
+    result, _ = _run_with_tool(FakeSession({}), [
+        ("c1", "submit_decision", {"outcome": "answer"}),
+        ("c2", "submit_decision", {"outcome": "refusal", "refusal_type": "i"}),
+    ])
+    assert (result.actual_outcome, result.actual_refusal_type) == ("refusal", "i")
+
+
+def test_explicit_provider_takes_precedence_over_model_declaration():
+    result, _ = _run_with_tool(
+        FakeSession({}), [("c1", "submit_decision", {"outcome": "answer"})],
+        decision_provider=lambda _s: {"outcome": "refusal", "refusal_type": "ii",
+                                      "decision_source": "test.provider"})
+    assert result.actual_outcome == "refusal" and result.decision_source == "test.provider"
+
+
+def test_unverified_freeze_blocks_model_declared_decision():
+    session = FakeSession({"freeze_account_temporarily": _tool_result({"ok": True})})
+    result, _ = _run_with_tool(session, [
+        ("c1", "freeze_account_temporarily", {"account_id": "ACC001", "reason": "r"}),
+        ("c2", "submit_decision", {"outcome": "answer"}),
+    ])
+    assert result.policy_reason_code == "write_verification_missing"
+    assert result.actual_outcome is None
+
+
+def test_mcp_tool_may_not_shadow_the_reserved_name():
+    class Shadow(FakeSession):
+        async def list_tools(self):
+            return NS(tools=[_tool("submit_decision")])
+
+    result, _ = _run_with_tool(Shadow({}), [])
+    assert result.status == "failed" and "reserved" in result.error
