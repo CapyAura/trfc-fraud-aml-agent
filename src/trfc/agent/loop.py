@@ -19,12 +19,14 @@ from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from trfc.agent.llm import LLMRequestError, call_llm_async
+from trfc.agent.parse import Action, parse_action
 from trfc.tools.state import DB_PATH_ENV, REQUIRE_ISOLATED_DB_ENV, resolve_db_path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 CONFIG_PATH = ROOT_DIR / "config.toml"
 PROMPT_PATH = ROOT_DIR / "prompts" / "system.txt"
 DECISION_PROMPT_PATH = ROOT_DIR / "prompts" / "decision.txt"
+REACT_PROMPT_PATH = ROOT_DIR / "prompts" / "react_step.txt"
 
 logging.basicConfig(
     stream=sys.stderr,
@@ -126,6 +128,12 @@ def load_decision_prompt() -> str:
     if DECISION_PROMPT_PATH.exists():
         return DECISION_PROMPT_PATH.read_text(encoding="utf-8")
     raise FileNotFoundError(f"Required decision prompt not found at {DECISION_PROMPT_PATH}")
+
+
+def load_react_prompt() -> str:
+    if REACT_PROMPT_PATH.exists():
+        return REACT_PROMPT_PATH.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"Required ReAct prompt not found at {REACT_PROMPT_PATH}")
 
 
 def mcp_server_environment() -> dict[str, str]:
@@ -487,6 +495,139 @@ async def _apply_decision(result: AgentRunResult, provider: Any, contexts_ok: bo
         setattr(result, name, value)
 
 
+_FINAL_MARKER = "Final Answer:"
+
+
+async def _run_text_react(
+    question: str, session: Any, *, model_request, max_steps: int | None,
+    system_prompt: str | None, decision_provider,
+) -> AgentRunResult:
+    """Text-based ReAct mode (opt-in; the default native loop is unchanged).
+
+    The model writes ``Action:`` + a ```json {"tool", "args"}``` block, parsed by
+    ``parse_action``; the Observation goes back as a user message. Tools are still
+    discovered and called through MCP, and validated against the server's
+    ``input_schema``. No ``tools=`` is sent to the model and the runtime-owned
+    ``submit_decision`` tool is unavailable, so decision fields stay ``None``
+    unless an injected ``decision_provider`` supplies them.
+    """
+    result = AgentRunResult()
+    usage_totals = _UsageTotals()
+    contexts_capture_complete = True
+    try:
+        if max_steps is None:
+            max_steps = load_max_steps()
+        if type(max_steps) is not int or max_steps < 1:
+            raise ValueError("max_steps must be a positive integer")
+        discovered = _field(await session.list_tools(), "tools", [])
+        by_name = {}
+        for tool in discovered:
+            name = _tool_schema(tool)["function"]["name"]
+            if name in by_name:
+                raise ValueError(f"MCP discovery returned duplicate tool {name!r}")
+            by_name[name] = tool
+        result.tool_trace = []
+        messages = [
+            {"role": "system", "content": system_prompt or load_react_prompt()},
+            {"role": "user", "content": question},
+        ]
+        search_policy_calls = 0
+        for step in range(1, max_steps + 1):
+            try:
+                response = model_request(messages)
+                if inspect.isawaitable(response):
+                    response = await response
+                assistant, usage = response
+                usage_totals.add(usage)
+            except LLMRequestError as exc:
+                usage_totals.add_failed_request(exc.calls)
+                result.error = str(exc)
+                result.usage = usage_totals.as_dict()
+                return result
+            except Exception as exc:
+                usage_totals.prompt_complete = False
+                usage_totals.completion_complete = False
+                usage_totals.max_prompt_complete = False
+                result.error = f"Model request failed: {type(exc).__name__}: {exc}"
+                result.usage = usage_totals.as_dict()
+                return result
+
+            content = _field(assistant, "content")
+            if not isinstance(content, str) or not content.strip():
+                result.error = "Assistant response has no text content"
+                result.usage = usage_totals.as_dict()
+                return result
+            messages.append({"role": "assistant", "content": content})
+
+            if _FINAL_MARKER in content and "Action:" not in content:
+                result.answer = content.split(_FINAL_MARKER, 1)[1].strip()
+                result.status = "completed"
+                result.usage = usage_totals.as_dict()
+                if decision_provider is not None:
+                    await _apply_decision(result, decision_provider, contexts_capture_complete)
+                return result
+
+            action = parse_action(content)
+            if not isinstance(action, Action):
+                # parse_action returns "Error: ..." text: feed it back, do not crash.
+                messages.append({"role": "user", "content": f"Observation: {action}"})
+                continue
+
+            error = None
+            tool_result_text = ""
+            status = "error"
+            tool = by_name.get(action.tool)
+            if tool is None:
+                error = f"Unknown or undiscovered tool {action.tool!r}"
+            else:
+                error = _validate_arguments(
+                    action.args, _field(tool, "input_schema", _field(tool, "inputSchema")))
+                if error is None:
+                    try:
+                        if action.tool == "search_policy":
+                            search_policy_calls += 1
+                        if action.tool == "search_policy" and search_policy_calls > 2:
+                            tool_result_text = (
+                                "Thông báo hệ thống: Đã tra cứu đủ thông tin chính sách (tối đa 2 lần). "
+                                "Hãy tổng hợp các điều khoản đã tìm thấy và đưa ra Final Answer.")
+                            status = "completed"
+                        else:
+                            tool_result_text, status = _tool_output(
+                                await session.call_tool(action.tool, action.args))
+                            if status == "error":
+                                error = tool_result_text
+                            elif action.tool == "search_policy":
+                                retrieved = _retrieved_contexts(action.tool, tool_result_text)
+                                if retrieved is None:
+                                    contexts_capture_complete = False
+                                else:
+                                    result.contexts = (result.contexts or []) + retrieved
+                    except Exception as exc:
+                        error = f"Tool execution failed: {type(exc).__name__}: {exc}"
+            if error is not None:
+                status = "error"
+                tool_result_text = f"Tool error: {error}"
+            result.tool_trace.append({
+                "step": step, "tool_call_id": f"text_react_{step}", "tool_name": action.tool,
+                "arguments": action.args, "result": tool_result_text,
+                "status": status, "error": error,
+            })
+            messages.append({"role": "user", "content": f"Observation: {tool_result_text}"})
+
+        result.error = f"Text ReAct loop exceeded MAX_STEPS ({max_steps})"
+        result.usage = usage_totals.as_dict()
+        return result
+    except Exception as exc:
+        result.error = f"Agent run failed: {type(exc).__name__}: {exc}"
+        result.usage = usage_totals.as_dict()
+        return result
+    finally:
+        if result.status != "completed" and result.tool_trace == []:
+            result.tool_trace = None
+        if not contexts_capture_complete:
+            result.contexts = None
+
+
 async def run_with_session(
     question: str,
     session: Any,
@@ -496,8 +637,17 @@ async def run_with_session(
     system_prompt: str | None = None,
     decision_provider=None,
     enable_decision_tool: bool = False,
+    text_react: bool = False,
 ) -> AgentRunResult:
-    """Run the tool loop with injectable model/session collaborators."""
+    """Run the tool loop with injectable model/session collaborators.
+
+    ``text_react=True`` switches to the opt-in text ReAct mode (prompts/react_step.txt).
+    """
+    if text_react:
+        return await _run_text_react(
+            question, session, model_request=model_request, max_steps=max_steps,
+            system_prompt=system_prompt, decision_provider=decision_provider,
+        )
     # Trace capture is unavailable until MCP discovery completes. Once it does,
     # every tool call is appended below; failed runs retain partial events.
     result = AgentRunResult()
@@ -684,7 +834,7 @@ async def run_with_session(
 
 async def run_detailed(
     question: str, *, model_request=call_llm_async, decision_provider=None,
-    enable_decision_tool: bool = True,
+    enable_decision_tool: bool = True, text_react: bool = False,
 ) -> AgentRunResult:
     """Run against the project's stdio MCP server and return structured status."""
     try:
@@ -701,6 +851,7 @@ async def run_detailed(
                     question, session, model_request=model_request,
                     decision_provider=decision_provider,
                     enable_decision_tool=enable_decision_tool,
+                    text_react=text_react,
                 )
     except Exception as exc:
         return AgentRunResult(
@@ -725,7 +876,14 @@ def main() -> int:
         print('Usage: python -m trfc.agent.loop "question"', file=sys.stderr)
         return 2
 
-    result = asyncio.run(run_detailed(" ".join(sys.argv[1:])))
+    args = sys.argv[1:]
+    text_react = "--text-react" in args
+    args = [a for a in args if a != "--text-react"]
+    if not args:
+        print('Usage: python -m trfc.agent.loop [--text-react] "question"', file=sys.stderr)
+        return 2
+    extra = {"text_react": True} if text_react else {}
+    result = asyncio.run(run_detailed(" ".join(args), **extra))
     output_dict = {
         "status": result.status,
         "answer": result.answer,
