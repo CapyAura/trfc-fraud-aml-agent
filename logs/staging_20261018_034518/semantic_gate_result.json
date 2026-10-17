@@ -1,0 +1,24 @@
+{
+  "overall": "FAIL",
+  "total_cases": 12,
+  "duplicate_question_ids": [],
+  "missing_question_ids": [],
+  "freeze_write_success": true,
+  "freeze_verify_success": true,
+  "flag_write_success": true,
+  "flag_verify_success": true,
+  "refusal_type_i_count": 2,
+  "refusal_type_ii_count": 2,
+  "false_refusal_cases": [],
+  "false_answer_cases": [],
+  "schema_errors": [],
+  "semantic_errors": [
+    "Case q11 missing required citation/evidence for DOC0006"
+  ],
+  "unverified_checks": [],
+  "input_files": {
+    "evaluation": "logs\\staging_20261018_034518\\evaluation.jsonl",
+    "step_events": "logs\\staging_20261018_034518\\step_events.jsonl",
+    "decision_events": "logs\\staging_20261018_034518\\decision_events.jsonl"
+  }
+}

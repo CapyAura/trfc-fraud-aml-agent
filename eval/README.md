@@ -198,9 +198,14 @@ CSV and charts explicitly labelled as having no evaluation data.
   Neither check proves which database a real MCP subprocess opened. Do not use
   `state.reset()` without an explicit disposable database path.
 - Authentic run logs from staging verification are included in
-  `logs/staging_20261017_201308/` covering all 12 testset cases across freeze,
-  flag, and refusal scenarios. The logs in `logs/staging_20261018_*` are later
-  re-runs of the same pipeline and include the `metadata_filter_usage` metric.
+  `logs/staging_20261017_201308/` and `logs/staging_20261018_035803/`, both
+  covering all 12 testset cases across freeze, flag, and refusal scenarios and
+  both passing the semantic gate. Rows carry `tool_trace`, so
+  `metadata_filter_usage` is computed from the trace (q04 → `true` for
+  `tier=2`) even though the row itself has no such stored key.
+  `logs/staging_20261018_034518/` is a third real run that completed 12/12 cases
+  but failed the gate on one required citation (q11 → DOC0006); it is kept as
+  failure evidence, not as an accepted run. See `logs/README.md`.
 - The proposed runtime metadata interface for Person B review is documented in
   [`PERSON_B_C4_METADATA_CONTRACT.md`](PERSON_B_C4_METADATA_CONTRACT.md). It is
   a proposal, not an agreed runtime implementation.
@@ -247,7 +252,14 @@ live run is `make eval-live`, which needs credentials and an isolated database):
 ```powershell
 .\.venv\Scripts\python.exe -m pytest --ignore=tests/test_tools.py --basetemp .test-tmp/pytest
 .\.venv\Scripts\python.exe -m eval.run_eval --dry-run
+.\.venv\Scripts\python.exe -m eval.report --input logs/staging_20261017_201308/evaluation.jsonl --output-dir .test-tmp/eval-repro --rescore
 ```
+
+`make eval` does all three: it validates the testset, rescoring the committed
+`logs/staging_20261017_201308/evaluation.jsonl` into `.test-tmp/eval-repro` and
+failing if any byte differs from `eval/reports/`, then re-runs
+`eval.semantic_gate` on the same session. Every number in the report is
+therefore reproducible with one command and no API key.
 
 The current `make test` command excludes `tests/test_tools.py`; that file's
 current fixture uses a database under pytest's temporary directory. The target
@@ -277,17 +289,17 @@ repository. Two limits still apply when reading it: `faithfulness` is
 values in the log are redacted, so per-case scores cannot be re-derived from
 the committed answers. See
 [`reports/verification/c4_final_report.md`](../reports/verification/c4_final_report.md)
-for the per-case failure analysis. A newer genuine run at
-`logs/staging_20261018_015357/` records `metadata_filter_usage=true` for `q04`
-and passes the semantic gate.
+for the per-case failure analysis. The same run records `metadata_filter_usage`
+`true` for `q04` (its `search_policy` call at step 1 passes `tier: 2`) and passes
+the semantic gate.
 
 ### Latest recorded verification status
 
-Measured on 2026-10-18 on Python 3.14.7 with the project `.venv`:
+Measured on 2026-10-18 on Python 3.13.5 with the project `.venv`:
 
 - Adapter tests: **19 passed** (`.venv\Scripts\python.exe -m pytest -q tests/test_agent_adapter.py`).
 - Focused regression (`test_tools` + `test_native_tool_calling` + `test_client2` + `test_db_isolation`): **76 passed**.
-- Full suite: **400 passed, 1 skipped** (`.venv\Scripts\python.exe -m pytest -q --ignore=tests/test_tools.py`). The skip is `tests/test_eval_db_isolation.py:73`, because symlink creation is unavailable without Windows admin.
+- Full suite: **403 passed, 0 skipped** (`.venv\Scripts\python.exe -m pytest -q --ignore=tests/test_tools.py`).
 - `tests/test_tools.py` is excluded by the project test target; it collects 4 tests and resets `data/state.db`.
 - `git diff --check` completed without whitespace errors; Git emitted only LF-to-CRLF working-copy notices.
 
@@ -427,9 +439,10 @@ event validator on each retained file; separately review execution provenance.
    or `ii`), and a trace showing no freeze/flag write tool was called. This
    scenario must not change state.
 
-The three scenarios were collected in one staging pass rather than three
+The three scenarios were collected in each staging pass rather than three
 separate runs: `q05` (freeze), `q06` (flag), and `q09`–`q12` (refusal) in
-`logs/staging_20261017_201308/`. That satisfies "distinct outcomes in `logs/`";
+`logs/staging_20261017_201308/` and again, independently, in
+`logs/staging_20261018_035803/`. That satisfies "distinct outcomes in `logs/`";
 it does not produce three separate JSONL files. The database isolation guard was
 enabled with a disposable `TRFC_STATE_DB`, and the run exercised the live
 provider through the agent loop rather than a fake. Two caveats remain: the log

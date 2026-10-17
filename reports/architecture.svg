@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 340" width="1120" height="680" font-family="Segoe UI, DejaVu Sans, Arial, sans-serif">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#111"/></marker><marker id="aro" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C2410C"/></marker></defs>
+<rect width="560" height="340" fill="#fff"/>
+<path d="M15,128 L545,128" fill="none" stroke="#888" stroke-width="1.3" stroke-dasharray="5 3"/>
+<rect x="40" y="10" width="150" height="34" rx="6" fill="#EDEDED" stroke="#333333" stroke-width="1.4"/>
+<text x="115.0" y="24.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">CLI / eval (C)</text>
+<text x="115.0" y="36.0" text-anchor="middle" font-size="8.8" fill="#333">câu hỏi người dùng</text>
+<rect x="350" y="10" width="180" height="34" rx="6" fill="#EDEDED" stroke="#333333" stroke-width="1.4"/>
+<text x="440.0" y="24.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">client2.py (C)</text>
+<text x="440.0" y="36.0" text-anchor="middle" font-size="8.8" fill="#333">host MCP thứ hai</text>
+<rect x="40" y="62" width="270" height="42" rx="6" fill="#E8F0FE" stroke="#1A3D7C" stroke-width="1.4"/>
+<text x="175.0" y="80.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">Agent loop — agent/loop.py</text>
+<text x="175.0" y="92.0" text-anchor="middle" font-size="8.8" fill="#333">MAX_STEPS = 8 · native tool-calling</text>
+<rect x="345" y="62" width="185" height="42" rx="6" fill="#E8F0FE" stroke="#1A3D7C" stroke-width="1.4"/>
+<text x="437.5" y="80.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">LLM — agent/llm.py</text>
+<text x="437.5" y="92.0" text-anchor="middle" font-size="8.8" fill="#333">retry · timeout · 1 nơi gọi</text>
+<rect x="65" y="154" width="375" height="40" rx="6" fill="#E8F0FE" stroke="#1A3D7C" stroke-width="1.4"/>
+<text x="252.5" y="171.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">MCP server — mcp_server/server.py</text>
+<text x="252.5" y="183.0" text-anchor="middle" font-size="8.8" fill="#333">5 tool (3 đọc · 2 ghi: freeze_account, flag_suspicious_tx)</text>
+<rect x="65" y="214" width="375" height="34" rx="6" fill="#E8F0FE" stroke="#1A3D7C" stroke-width="1.4"/>
+<text x="252.5" y="228.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">tools/impl.py (B)</text>
+<text x="252.5" y="240.0" text-anchor="middle" font-size="8.8" fill="#333">trả dataclass hoặc "Error: ..."</text>
+<rect x="65" y="268" width="175" height="46" rx="6" fill="#F3E8FD" stroke="#5B2C87" stroke-width="1.4"/>
+<text x="152.5" y="282.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">rag/search.py (A)</text>
+<text x="152.5" y="294.0" text-anchor="middle" font-size="8.8" fill="#333">dense + hybrid BM25</text>
+<text x="152.5" y="306.0" text-anchor="middle" font-size="8.8" fill="#333">data/docs/DOC0001–9</text>
+<rect x="265" y="268" width="175" height="46" rx="6" fill="#FFF4E5" stroke="#8A5A00" stroke-width="1.4"/>
+<text x="352.5" y="288.0" text-anchor="middle" font-size="11.5" font-weight="600" fill="#111">SQLite — tools/state.py</text>
+<text x="352.5" y="300.0" text-anchor="middle" font-size="8.8" fill="#333">accounts · transactions · flags</text>
+<path d="M115,44 L115,62" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M310,83 L345,83" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M130,104 L130,154" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M530,27 L545,27 L545,174 L440,174" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M252,194 L252,214" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M152,248 L152,268" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M352,248 L352,268" fill="none" stroke="#111" stroke-width="1.3" marker-end="url(#ar)"/>
+<path d="M65,174 L25,174 L25,83 L40,83" fill="none" stroke="#C2410C" stroke-width="1.3" stroke-dasharray="5 3" marker-end="url(#aro)"/>
+<rect x="150" y="120" width="380" height="16" fill="#fff"/>
+<text x="340" y="132" text-anchor="middle" font-size="8.8" fill="#111">ranh giới tiến trình · MCP stdio: stdout = JSON-RPC, stderr = log</text>
+<text x="136" y="149" text-anchor="start" font-size="8.8" fill="#111">list_tools() → call_tool() · JSON-RPC</text>
+<text x="19" y="150" text-anchor="middle" font-size="8.8" fill="#C2410C" transform="rotate(-90 19 150)">ghi → đọc lại (verify)</text>
+</svg>

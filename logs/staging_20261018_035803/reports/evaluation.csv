@@ -1,0 +1,13 @@
+﻿question_id,category,expected_outcome,actual_outcome,answer_correctness,faithfulness,context_precision,refusal_correctness,refusal_subtype_correctness,metadata_filter_usage,calls,prompt_tokens,completion_tokens,max_prompt,status,error
+q01,retrieval,answer,answer,True,Unscorable,0.5,True,N/A,Unscorable,3,10076,495,3684,completed,
+q02,retrieval,answer,answer,True,Unscorable,0.8,True,N/A,Unscorable,3,15778,936,6542,completed,
+q03,retrieval,answer,answer,True,Unscorable,0.6,True,N/A,Unscorable,3,12354,667,4825,completed,
+q04,calc,answer,answer,True,Unscorable,0.5,True,N/A,True,3,11880,880,4542,completed,
+q05,calc,answer,answer,True,Unscorable,0.6,True,N/A,Unscorable,5,22930,1202,5247,completed,
+q06,contradiction,answer,answer,True,Unscorable,1.0,True,N/A,Unscorable,5,22362,1182,5071,completed,
+q07,contradiction,answer,answer,True,Unscorable,0.7,True,N/A,Unscorable,3,15960,880,6625,completed,
+q08,multi_doc,answer,answer,False,Unscorable,0.9,True,N/A,Unscorable,3,16211,1087,6750,completed,
+q09,no_answer,refusal,refusal,Unscorable,Unscorable,1.0,True,True,Unscorable,3,11872,701,4591,completed,
+q10,no_answer,refusal,refusal,Unscorable,Unscorable,0.5,True,True,Unscorable,3,15744,735,6525,completed,
+q11,no_answer,refusal,refusal,Unscorable,Unscorable,Unscorable,True,True,Unscorable,2,5691,518,2911,completed,
+q12,no_answer,refusal,refusal,Unscorable,Unscorable,0.6,True,True,Unscorable,3,11898,634,4602,completed,

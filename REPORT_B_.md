@@ -2,18 +2,9 @@
 
 ## §2 — Kiến trúc tổng thể
 
-```
-CLI / eval ──câu hỏi──▶ Agent loop (agent/loop.py, MAX_STEPS=8)
-                          │  call_llm() ─▶ LLM (agent/llm.py: retry, timeout)
-                          │  list_tools() / call_tool()  (JSON-RPC)
-══════════ ranh giới tiến trình: MCP stdio (stdout = JSON-RPC, log = stderr) ══════════
-client2.py (host thứ hai, C) ─▶ MCP server (mcp_server/server.py, 5 tool)
-                                        │
-                                  tools/impl.py  (trả dataclass hoặc "Error: ...")
-                          ┌─────────────┴──────────────┐
-                    rag/search.py (A)          SQLite state.db (tools/state.py)
-                    data/docs/DOC0001–9        accounts · transactions · flags
-```
+![Hình 2.1 — Kiến trúc tổng thể: agent loop, ranh giới MCP stdio, tool và trạng thái](reports/architecture.png)
+
+*Hình 2.1.* Mũi tên đứt nét cam là cặp **ghi → đọc lại (verify)**: agent gọi `freeze_account_temporarily` xong bắt buộc gọi `get_account_risk_status` để chứng minh trạng thái đã đổi. Nguồn hình: `scripts/make_arch_figure.py` (sinh `reports/architecture.svg` + `.png`).
 
 Bốn ranh giới: người dùng ↔ agent; agent ↔ LLM (chỉ qua `call_llm()`); agent ↔ tool (qua MCP stdio, tách tiến trình); tool ↔ trạng thái (chỉ `state.py` mở SQLite).
 

@@ -14,9 +14,10 @@
 | ChatGPT | — | Hỏi ý tưởng thiết kế `tier` pre-filter, debug lỗi asyncio trên Windows |
 
 Không dùng AI để sinh log chạy hay số liệu eval. Mọi số trong `eval/reports/` đều lấy từ lần chạy thật
-với agent + LLM sống. `make eval` chỉ validate testset offline (`--dry-run`), **không** tái lập được số
-liệu; lần chạy thật tái lập bằng `make eval-live` (cần LLM key + network + một `TRFC_STATE_DB` cách ly).
-Log của lần chạy được trích trong report nằm ở `logs/staging_20261017_201308/`.
+với agent + LLM sống. `make eval` **tái lập** các số đó mà không cần key: nó chấm lại
+`logs/staging_20261017_201308/evaluation.jsonl`, so từng byte với `eval/reports/` (lệch là fail) rồi chạy
+lại `eval.semantic_gate`. Muốn sinh log mới thì dùng `make eval-live` (cần LLM key + network + một
+`TRFC_STATE_DB` cách ly). Log của lần chạy được trích trong report nằm ở `logs/staging_20261017_201308/`.
 
 ## 2. Prompt chính
 

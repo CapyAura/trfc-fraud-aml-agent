@@ -16,6 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 eval = ["ragas>=0.1", "datasets>=2.20"]
 dev = ["pytest>=8.0"]
+# Only `scripts/build_report_docx.py` needs this; the demo and eval never import it.
+report = ["python-docx>=1.1"]
 
 [build-system]
 requires = ["setuptools>=68"]

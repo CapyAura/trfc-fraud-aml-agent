@@ -31,7 +31,7 @@ Giữ lại để đối chiếu lúc bảo vệ:
 - **Yêu cầu 2.1–2.8** — đạt cả 8.
 - **Corpus** — 9 doc, 16.293 token (min 10.000).
 - **Testset** — 12 câu, 4 `no_answer` (loại i=2, ii=2).
-- **Logs** — `logs/staging_20261017_201308/`, 6 run_id, đều `execution_mode: "real"`, có `USAGE` từng câu, đã track git.
+- **Logs** — 3 lần chạy thật: `logs/staging_20261017_201308/` và `logs/staging_20261018_035803/` (gate PASS), `logs/staging_20261018_034518/` (gate FAIL q11, giữ làm bằng chứng). Đều `execution_mode: "real"`, có `USAGE` từng câu.
 - **Side effect + verify** — `semantic_gate_result.json` → `freeze_write_success` / `freeze_verify_success` / `flag_write_success` / `flag_verify_success` đều `true`. Trace thật đã dán ở `REPORT_B_.md:86-94`.
 - **MCP** — 5 tool (2 ghi), stdio, log ra stderr, client discover động.
 - **Bảo mật** — `.env` ignored, `Ref/` untracked, không có key trong repo.

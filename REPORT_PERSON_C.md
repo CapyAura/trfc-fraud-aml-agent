@@ -73,7 +73,7 @@ Dữ liệu được trích xuất nguyên bản từ file [`logs/staging_202610
 | **TỔNG / TB** | **12 câu** | **100% Hoàn thành** | **6/8 đạt (75%)** | **0.74 (74%) — 12/12 câu chấm được** | **12/12 đạt (100%)** | **4/4 đạt (100%)** | **40 calls** | **192.688** | **9.647** | **7.188** |
 
 *\*Ghi chú — hai ca `False` có nguyên nhân KHÁC NHAU, không được gộp:*
-> * **`q05` — marker bị che bởi redaction, không phải paraphrase.** Trong log `201308`, `expected.values[1]` đã bị ghi thành `[REDACTED] VND` và câu trả lời đã lưu có **9 vị trí `[REDACTED]`**, nên người đọc không thể đối chiếu marker tiền tệ. Các lần chạy sau có thêm trường `marker_results` (ghi **trước** redaction) xác nhận đúng cơ chế này: `q05` có `[{index: 1, satisfied: true}, {index: 2, satisfied: false}]` — `44%` đạt, marker tiền tệ không đạt. Điểm vẫn được tính **trước** redaction (`eval/run_eval.py:326` dựng `row["metrics"]`, `:378` mới gọi `redact_for_log`), nên `False` phản ánh câu trả lời gốc — nhưng đây là **giới hạn bằng chứng**, không phải kết luận agent tính sai.
+> * **`q05` — marker bị che bởi redaction, không phải paraphrase.** Trong log `201308`, `expected.values[1]` đã bị ghi thành `[REDACTED] VND` và câu trả lời đã lưu có **9 vị trí `[REDACTED]`**, nên người đọc log **không thể** đối chiếu marker tiền tệ `220.000.000 VND`. Điểm vẫn được tính **trước** redaction (`eval/run_eval.py:326` dựng `row["metrics"]`, `:378` mới gọi `redact_for_log`), nên `False` phản ánh câu trả lời gốc chứ không phải câu đã che. Trường `marker_results` — thứ ghi lại từng marker đạt/không đạt trước redaction — được thêm vào `eval/run_eval.py:348` ở commit `68a7a22`, **sau** phiên `201308`; trong `logs/` hiện chỉ có phiên đó và mọi row đều có `marker_results = None`, nên báo cáo **không** dẫn trường này làm bằng chứng. Đây là **giới hạn bằng chứng**, không phải bằng chứng agent tính sai.
 > * **`q08` — paraphrase, không có redaction.** Câu trả lời đã lưu có **0 vị trí `[REDACTED]`**; agent viết *"không **thể** ra quyết định khóa"* thay vì *"không **được** ra quyết định khóa"*, nên `marker_satisfied()` trả `False`. Đây thuần túy là hạn chế của so khớp chuỗi literal.
 
 Phân tích chi tiết tại Mục 6.5.
@@ -95,10 +95,13 @@ Phân tích chi tiết tại Mục 6.5.
 
 | Lần chạy | Câu | `tier` model truyền vào `search_policy` | `metadata_filter_usage` |
 |---|---|:---:|:---:|
-| `logs/staging_20261018_014623/` | q04 | không truyền (`tier` vắng mặt) | **False** |
-| `logs/staging_20261018_015357/` | q04 | `tier=2` | **True** |
+| `logs/staging_20261017_201308/` | q04 | `tier=2` (arguments: `{"query": "hạn mức giao dịch ngày chuyển khoản trong nước theo tầng eKYC", "tier": 2}`) | **True** |
 
-Ca đầu cho thấy model tự bỏ qua filter dù câu hỏi có nêu tầng; ca sau, khi câu hỏi yêu cầu rõ "tra cứu bằng bộ lọc metadata tier=2", trace ghi nhận `{"query": "...", "tier": 2, "k": 5}` và metric đạt `True`. Đây là số đo từ log thật, không phải suy luận từ code.
+Đây là phiên staging thật duy nhất còn trong `logs/`. Trace của `q04` ở bước 1 gọi `search_policy`
+với `tier: 2`; chạy lại `eval.metrics.metadata_filter_usage(tool_trace, 2)` trên đúng row đó trả
+`True`. Đây là số đo từ log đã commit, không phải suy luận từ code. (Bản báo cáo trước có dẫn hai
+phiên `staging_20261018_014623`/`015357` — các thư mục này **không tồn tại** trong working tree lẫn
+lịch sử Git, nên đã bỏ khỏi báo cáo.)
 
 Metric này được nối vào pipeline đánh giá: `eval/run_eval.py` ghi `metrics.metadata_filter_usage`, `eval/report.py` xuất cột `metadata_filter_usage` trong `evaluation.csv` và hỗ trợ `--rescore` trên log cũ. Lưu ý phạm vi: metric chứng minh filter **được yêu cầu và truyền đúng tham số**, không chứng minh nội dung chunk trả về đã lọc đúng — phần đó do `tests/test_chunking.py` canh riêng.
 
@@ -112,7 +115,7 @@ Hai ca `Answer Correctness = False` có **hai nguyên nhân khác nhau** và ph�
 
 * **Câu hỏi:** tính tỷ lệ vượt hạn mức ngày cho ACC001, rồi tạm khóa tài khoản và verify.
 * **Marker kỳ vọng:** `"44%"` và `"220.000.000 VND"`.
-* **Bằng chứng từ log:** câu trả lời đã lưu chứa **9 vị trí `[REDACTED]`**, và `expected.values[1]` trong log cũng đã thành `[REDACTED] VND`. Ở lần chạy `staging_20261018_012603` (có thêm trường `marker_results`), cùng câu này cho `[{index: 1, satisfied: true}, {index: 2, satisfied: false}]`: `44%` đạt, marker tiền tệ không đạt. Người đọc log `201308` không thể tự đối chiếu con số tiền.
+* **Bằng chứng từ log:** câu trả lời đã lưu chứa **9 vị trí `[REDACTED]`**, và `expected.values[1]` trong log cũng đã thành `[REDACTED] VND`, nên người đọc log **không thể** đối chiếu marker tiền tệ `220.000.000 VND`. Trường `marker_results` — thứ ghi lại từng marker đạt/không đạt trước redaction — được thêm vào `eval/run_eval.py:348` ở commit `68a7a22`, **sau** phiên `201308`; log duy nhất trong `logs/` không có trường này, nên báo cáo **không** dẫn nó làm bằng chứng. Đây là **giới hạn bằng chứng**, không phải bằng chứng agent tính sai.
 * **Phân loại:** điểm được tính **trước** redaction — `eval/run_eval.py:326` dựng `row["metrics"]`, `:378` mới gọi `redact_for_log(row)` — nên `False` là kết quả trên câu trả lời gốc. Đây là **hạn chế bằng chứng**: kết luận đúng/sai không thể kiểm lại từ log đã commit, không phải kết luận agent tính sai.
 
 #### (b) `q08` — so khớp chuỗi literal (hạn chế của bộ chấm, không phải lỗi suy luận)
@@ -134,7 +137,7 @@ Hai ca `Answer Correctness = False` có **hai nguyên nhân khác nhau** và ph�
 
 Báo cáo tuân thủ nguyên tắc trung thực học thuật theo đúng hiện trạng hệ thống:
 * **Các nội dung ĐÃ ĐƯỢC XÁC MINH bằng chứng thật:**
-  1. Bộ unit test tự động đạt **401 passed, 1 skipped** trên môi trường Python 3.14.7 (bao gồm 4 bài test gọi tool ở `tests/test_tools.py`, 32 bài test evaluation/report ở `tests/test_eval.py`, 40 bài test cách ly database subprocess ở `tests/test_db_isolation.py`, 24 bài test `test_semantic_gate.py`, và 26 bài test `test_llm_judge.py`; ca skip duy nhất là tạo symlink trên Windows không có quyền Admin tại `tests/test_eval_db_isolation.py:73`).
+  1. Bộ unit test tự động đạt **403 passed, 0 skipped** trên môi trường Python **3.13.5** (bao gồm 4 bài test gọi tool ở `tests/test_tools.py`, 32 bài test evaluation/report ở `tests/test_eval.py`, 40 bài test cách ly database subprocess ở `tests/test_db_isolation.py`, 24 bài test `test_semantic_gate.py`, và 26 bài test `test_llm_judge.py`).
   2. Phiên chạy Staging độc lập [`logs/staging_20261017_201308/`](logs/staging_20261017_201308/) đạt **PASS 100% trên Semantic Gate** với đủ 12 ca kiểm thử, ghi nhận đầy đủ `step_events.jsonl`, `decision_events.jsonl`, `evaluation.csv` và biểu đồ SVG.
   3. Cơ chế cách ly ghi an toàn: Quá trình chạy thử nghiệm chỉ thao tác trên database tạm thời (đường dẫn ngoài repo, đặt qua biến môi trường `TRFC_STATE_DB`), bảo toàn tuyệt đối database gốc `data/state.db` với SHA256 không đổi: `A86FCA5B32A0477CB1A511F57516AC991857FB7EF4F5836F915C685687E7E1A6`.
 * **Các giới hạn kỹ thuật (Chưa xác minh):**
@@ -156,15 +159,15 @@ Báo cáo tuân thủ nguyên tắc trung thực học thuật theo đúng hiệ
 
 ### Bảng đối soát tài khoản Git trên Repository
 
-Tính đến commit `580e4f3`, kho lưu trữ ghi nhận tổng cộng **69 commits** phân bổ theo các tài khoản Git:
+Tính đến phiên bản chốt, kho lưu trữ ghi nhận tổng cộng **71 commits** phân bổ theo các tài khoản Git:
 
 | Tài khoản Git | Số lượng Commit | Vai trò tương ứng trong đồ án |
 |---|:---:|---|
 | **Do Ngo** | 38 commits | Thành viên B (Phát triển chính ReAct Loop, Tools, MCP Server và Decision Prompt) |
-| **CapyCoder** | 13 commits | Thành viên A (Soạn thảo Corpus, RAG, Chunking, và tài liệu đặc tả) |
-| **Penguin-cell34** | 11 commits | Thành viên C (Xây dựng Evaluator, Semantic Gate, Staging Runner, và sửa lỗi tích hợp) |
+| **CapyCoder** | 14 commits | Thành viên A (Soạn thảo Corpus, RAG, Chunking, và tài liệu đặc tả) |
+| **Penguin-cell34** | 12 commits | Thành viên C (Xây dựng Evaluator, Semantic Gate, Staging Runner, và sửa lỗi tích hợp) |
 | **Do Coding** | 7 commits | Thành viên B (Tài khoản phụ hỗ trợ commit các module MCP và Tool schema) |
-| **Tổng cộng** | **69 commits** | **Ghi chú bắt buộc:** Tài khoản `Do Ngo` và `Do Coding` thuộc cùng Thành viên B, đảm bảo dự án có đúng 3 thành viên thực hiện độc lập. |
+| **Tổng cộng** | **71 commits** | **Ghi chú bắt buộc:** Tài khoản `Do Ngo` và `Do Coding` thuộc cùng Thành viên B, đảm bảo dự án có đúng 3 thành viên thực hiện độc lập. |
 
 ---
 
@@ -178,7 +181,7 @@ Tính đến commit `580e4f3`, kho lưu trữ ghi nhận tổng cộng **69 comm
 - [x] **§6.6:** Báo cáo trung thực mức độ xác minh (Pass Semantic Gate, cách ly DB thành công, không bịa đặt môi trường production).
 - [x] **§8:** Lập bảng commit hash thật từ lịch sử Git (`8c77866`, `6ccbdf1`, `ed531d9`...), ghi chú rõ ràng về 2 tài khoản commit của Thành viên B.
 - [x] **Client thứ hai:** File [`src/trfc/mcp_server/client2.py`](src/trfc/mcp_server/client2.py) độc lập, chạy đạt 12/12 unit tests trong `test_client2.py`.
-- [x] **Điểm cộng +1 Metadata Filter:** Bổ sung `expected_tier: 2` cho `q04`, thêm metric `metadata_filter_usage` vào `metrics.py`/`run_eval.py`/`report.py`, và đo được từ log trace thực tế (`staging_20261018_014623` → `False`, `staging_20261018_015357` → `True`).
+- [x] **Điểm cộng +1 Metadata Filter:** Bổ sung `expected_tier: 2` cho `q04`, thêm metric `metadata_filter_usage` vào `metrics.py`/`run_eval.py`/`report.py`, và đo được từ log trace thực tế (`logs/staging_20261017_201308/` q04 → `True`).
 - [x] **Đo lường bổ trợ LLM Judge:** Module `eval/llm_judge.py` + CLI `eval/run_judge.py` + 26 unit test trong `tests/test_llm_judge.py`; chạy song song với metric xác định, không ghi đè, và từ chối log còn `[REDACTED]`.
 - [x] **Vệ sinh dữ liệu:** Đã rà lại toàn bộ ba file báo cáo; các TODO về số liệu dense-vs-hybrid (§3.5) và provider/model (§5) đã được thay bằng nội dung đúng thực tế. Mọi số liệu còn lại đều có căn cứ từ log thực nghiệm.
 - [x] **Quy chuẩn trang:** Nội dung được căn chỉnh độ dài chặt chẽ, sẵn sàng để ghép vào văn bản `report.docx` đạt chuẩn 8–9 trang.

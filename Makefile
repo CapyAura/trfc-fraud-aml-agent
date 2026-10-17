@@ -25,6 +25,9 @@ endif
 
 .PHONY: setup demo eval eval-live validate-testset report test
 
+# Phiên chạy thật dùng để tái lập số liệu report. Đổi phiên: make eval SESSION=logs/<dir>
+SESSION ?= logs/staging_20261017_201308
+
 setup:
 	uv sync --locked --extra dev
 
@@ -37,9 +40,15 @@ demo:
 	@$(DEMO_ENV) $(PY) -c "import trfc.tools.state as s; s.reset()"
 	@$(DEMO)
 
-# Offline validation only; a real evaluation requires a working adapter.
+# Tái lập MỌI số liệu trong report từ log phiên chạy thật đã commit — không gọi
+# LLM, không cần key. Ba bước: (1) validate testset, (2) chấm lại evaluation.jsonl
+# của phiên thành CSV/SVG rồi so với bản đã commit, (3) chạy lại semantic gate.
+# Lệch một ô là fail. Muốn chạy lại agent thật thì dùng `make eval-live`.
 eval validate-testset:
 	$(PY) -m eval.run_eval --dry-run
+	$(PY) -m eval.report --input $(SESSION)/evaluation.jsonl --output-dir .test-tmp/eval-repro --rescore
+	$(PY) -c "import filecmp,sys; from pathlib import Path; a,b=Path('eval/reports'),Path('.test-tmp/eval-repro'); bad=[f.name for f in sorted(b.iterdir()) if not filecmp.cmp(f, a/f.name, shallow=False)]; print('LECH: '+', '.join(bad) if bad else 'eval-repro: khop tung byte voi eval/reports'); sys.exit(1 if bad else 0)"
+	$(PY) -m eval.semantic_gate $(SESSION) --require-events --step-events $(SESSION)/step_events.jsonl --decision-events $(SESSION)/decision_events.jsonl --output .test-tmp/eval-gate.json
 
 # Live evaluation: calls the agent + LLM through MCP and rewrites the logs that
 # feed `make report`. Needs credentials/network and an isolated TRFC_STATE_DB

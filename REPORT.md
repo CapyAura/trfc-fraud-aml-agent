@@ -185,7 +185,7 @@ của toàn bộ chunk gốc khi `tier=None`, hoặc chỉ view tầng N khi có
 trên tập đó. Chunk sai tầng **không bao giờ** vào top-K kể cả khi khớp từ khoá tốt hơn, trong khi
 post-filter để chunk sai tầng chiếm slot top-5 và đẩy chunk đúng ra ngoài.
 
-**Bằng chứng đo lường thực tế:** Testset có câu `q04` khai báo `expected_tier: 2`. Evaluator ghi nhận metric `metadata_filter_usage` từ tool trace thực tế: ở lần chạy `logs/staging_20261018_014623/` mô hình tự bỏ qua filter (`tier` vắng mặt $\rightarrow$ `False`), nhưng ở `logs/staging_20261018_015357/` mô hình gọi `search_policy(query=..., tier=2, k=5)` và metric đạt `True`. Điều này chứng minh filter hoạt động thực sự trong pipeline chứ không chỉ tồn tại trong mã nguồn (xem thêm chi tiết tại §6.4).
+**Bằng chứng đo lường thực tế:** Testset có câu `q04` khai báo `expected_tier: 2`. Evaluator ghi nhận metric `metadata_filter_usage` từ tool trace thực tế: trong phiên staging thật `logs/staging_20261017_201308/`, bước 1 của `q04` gọi `search_policy(query="hạn mức giao dịch ngày chuyển khoản trong nước theo tầng eKYC", tier=2)` và metric đạt `True` khi chấm lại trên đúng row đó. Điều này chứng minh filter hoạt động thực sự trong pipeline chứ không chỉ tồn tại trong mã nguồn (xem thêm chi tiết tại §6.4).
 
 ### 3.5 Dense vs hybrid — số đo
 

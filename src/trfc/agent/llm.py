@@ -263,6 +263,7 @@ def call_llm(
                 kwargs["max_tokens"] = max_tokens
             elif max_tokens_env and max_tokens_env.isdigit():
                 kwargs["max_tokens"] = int(max_tokens_env)
+            else:
                 kwargs["max_tokens"] = DEFAULT_MAX_TOKENS
 
             if tools:

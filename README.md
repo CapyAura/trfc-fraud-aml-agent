@@ -16,7 +16,7 @@ unit tests không đồng nghĩa tích hợp live đã được xác minh; xem [
 | A — chunking | **xong**: cắt theo Chương→Điều→Khoản, bảng markdown atomic |
 | A — embed / store / search | **xong**: dense + hybrid BM25 (`0.3*BM25_norm + 0.7*cosine`), top-K kèm score, pre-filter `tier` |
 | B — tool / agent loop / MCP | Có native Groq tool-call loop, MCP client/server và fail-closed guard cho write tools. MCP subprocess isolation đã được người dùng xác minh trên DB tạm; live Groq/MCP interoperability chưa xác minh. |
-| C — testset / eval / log | **xong**: Testset (12 cases), offline & live evaluator qua MCP/agent adapter, metrics RAGAS + refusal rate, xuất CSV/SVG reports, JSONL event logs (phiên staging run `staging_20261017_201308` đạt semantic gate PASS). |
+| C — testset / eval / log | **xong**: Testset (12 cases), offline & live evaluator qua MCP/agent adapter, metrics RAGAS + refusal rate, xuất CSV/SVG reports, JSONL event logs. Hai phiên staging độc lập đạt semantic gate PASS: `staging_20261017_201308` và `staging_20261018_035803`. |
 
 ## Chạy
 
@@ -24,15 +24,17 @@ Cần **GNU make**. Trên Windows không có sẵn `make` (chỉ có `mingw32-ma
 Git Bash/WSL hoặc chạy trực tiếp lệnh Python tương đương bên dưới.
 
 ```bash
-make eval       # validate testset offline (--dry-run); không chạy agent, không ra số liệu
+make eval       # tái lập số liệu report: chấm lại log thật, so từng byte với eval/reports, chạy lại semantic gate
 make test       # pytest, target hiện không bao gồm tests/test_tools.py
-make eval-live  # chạy agent + LLM thật rồi xuất CSV/SVG; cần key + network + DB cách ly
+make eval-live  # chạy lại agent + LLM thật để sinh log mới; cần key + network + DB cách ly
 ```
 
 Lệnh tương đương khi không có `make`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m eval.run_eval --dry-run                       # = make eval
+.\.venv\Scripts\python.exe -m eval.run_eval --dry-run                       # = make eval (bước 1)
+.\.venv\Scripts\python.exe -m eval.report --input logs/staging_20261017_201308/evaluation.jsonl `
+    --output-dir .test-tmp/eval-repro --rescore                             # = make eval (bước 2)
 .\.venv\Scripts\python.exe -m pytest --ignore=tests/test_tools.py           # = make test
 .\.venv\Scripts\python.exe -m eval.run_eval --agent-adapter eval.agent_adapter:run_case `
     --output logs/evaluation.jsonl                                          # = make eval-live
@@ -47,15 +49,15 @@ repo (rồi `reset()` seed lại mỗi lần), nên `data/state.db` production k
 không cần cấu hình tay. Không xem demo là offline check.
 
 **Trạng thái xác minh gần nhất của working tree:** full offline pytest suite đã pass
-trên Python 3.14.7 bằng `.venv` của dự án: adapter tests **19 passed**, focused
+trên Python 3.13.5 bằng `.venv` của dự án: adapter tests **19 passed**, focused
 regression suite (`test_tools` + `test_native_tool_calling` + `test_client2` +
-`test_db_isolation`) **76 passed**, full suite **401 passed, 1 skipped** (skip do
-Windows không tạo được symlink ở `tests/test_eval_db_isolation.py:73`).
+`test_db_isolation`) **76 passed**, full suite **403 passed, 0 skipped**.
 `git diff --check` không có whitespace error; Git chỉ báo LF-to-CRLF working-copy
 notices. Các kết quả trên chỉ xác nhận automated test coverage. Người dùng đã
 báo cáo riêng MCP subprocess isolation PASS trên DB tạm; lần triển khai policy
 offline này không chạy lại verifier. Có live evaluation thật (agent + LLM + MCP,
-DB tạm ngoài repo) ở `logs/staging_20261017_201308/` — report trích số từ đó.
+DB tạm ngoài repo) ở `logs/staging_20261017_201308/` và `logs/staging_20261018_035803/`
+— report trích số từ phiên `201308`.
 `claims` vẫn không được runtime sinh ra nên `faithfulness` chưa chấm được.
 Deterministic offline policy tests dùng provenance `synthetic` và không phải
 genuine scenario evidence. Không có thao tác nào trên production database.

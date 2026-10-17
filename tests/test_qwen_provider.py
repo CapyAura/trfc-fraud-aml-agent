@@ -154,6 +154,29 @@ def test_call_llm_tool_calling_with_mock_client(monkeypatch):
     assert create_kwargs["tool_choice"] == "auto"
 
 
+def test_call_llm_sends_max_tokens_from_env_or_default(monkeypatch):
+    """The request body must carry a max_tokens value: explicit arg > env > default."""
+    from trfc.agent.llm import DEFAULT_MAX_TOKENS
+
+    def sent_kwargs(**overrides):
+        mock_client = MagicMock()
+        mock_msg = MagicMock(content="ok", tool_calls=[])
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=mock_msg, finish_reason="stop")],
+            usage=MagicMock(prompt_tokens=1, completion_tokens=1),
+        )
+        call_llm([{"role": "user", "content": "hi"}], request_client=mock_client, **overrides)
+        return mock_client.chat.completions.create.call_args.kwargs
+
+    monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+    assert sent_kwargs()["max_tokens"] == DEFAULT_MAX_TOKENS
+
+    monkeypatch.setenv("LLM_MAX_TOKENS", "1024")
+    assert sent_kwargs()["max_tokens"] == 1024
+
+    assert sent_kwargs(max_tokens=4096)["max_tokens"] == 4096
+
+
 @pytest.mark.anyio
 async def test_call_llm_async_with_mock_client():
     """Verify call_llm_async executes properly without blocking."""

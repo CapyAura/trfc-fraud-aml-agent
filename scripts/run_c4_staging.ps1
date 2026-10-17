@@ -1,10 +1,16 @@
 # Staging execution runner for C4
-$ErrorActionPreference = "Stop"
+# Không dùng "Stop": PowerShell 5.1 bọc mỗi dòng stderr của tiến trình native thành
+# ErrorRecord, và MCP server ghi INFO ra stderr (đúng thiết kế stdout-sạch) -> "Stop"
+# sẽ kill script ngay ở dòng INFO đầu tiên. Mọi lệnh native dưới đây đều tự kiểm
+# $LASTEXITCODE nên lỗi thật vẫn dừng pipeline.
+$ErrorActionPreference = "Continue"
 $STAMP = (Get-Date).ToString("yyyyMMdd_HHmmss")
 Write-Output "=== C4 REAL STAGING PIPELINE LAUNCH ==="
 Write-Output "Timestamp: $STAMP"
 
-$ISOLATED_DIR = "D:\Work\AIPR\staging_c4_$STAMP"
+# DB cách ly phải nằm NGOÀI repo (TRFC_REQUIRE_OUTSIDE_REPO=1). Dùng %TEMP% chứ
+# không hard-code ổ đĩa của máy tác giả, để runner chạy được trên máy khác.
+$ISOLATED_DIR = Join-Path $env:TEMP "AIPR\staging_c4_$STAMP"
 $DB_FILE = "$ISOLATED_DIR\state.db"
 $LOG_DIR = "logs\staging_$STAMP"
 
