@@ -193,6 +193,34 @@ Quy tắc:
 6. Nếu Observation bắt đầu bằng "Error:" hoặc "Tool error:", đọc lỗi, sửa tham số hoặc đổi cách làm ở lượt sau. Không lặp lại y nguyên lệnh vừa lỗi; nếu không sửa được thì dừng và báo lỗi trong Final Answer.
 7. Câu hỏi ngoài phạm vi corpus (ví dụ phương thức thanh toán không thuộc danh mục DOC0009) hoặc thiếu dữ liệu tình huống để kết luận thì từ chối trong Final Answer, nêu rõ lý do và trích dẫn quy định liên quan; không suy đoán.
 8. Trả lời bằng tiếng Việt.
+
+# judge.txt
+Bạn là giám khảo chấm một câu trả lời của trợ lý Risk & Compliance. Chỉ dùng thông tin trong phần NGỮ CẢNH. Không dùng kiến thức bên ngoài và không đoán.
+
+Đầu vào:
+CÂU HỎI: {question}
+NGỮ CẢNH (các đoạn tài liệu đã truy hồi, mỗi đoạn có [Source: <doc_id>]): {contexts}
+CÂU TRẢ LỜI CẦN CHẤM: {answer}
+KỲ VỌNG: {expected_outcome} (nếu là refusal thì loại: {expected_refusal_type})
+
+Việc cần làm:
+1. Tách câu trả lời thành các khẳng định độc lập (mỗi khẳng định một ý, có thể kiểm chứng). Bỏ qua lời chào, câu hỏi ngược và phần mô tả hành động đã gọi công cụ.
+2. Với mỗi khẳng định, gán đúng một nhãn:
+   - "supported": NGỮ CẢNH nêu trực tiếp hoặc suy ra được ngay, không cần thêm giả định.
+   - "unsupported": NGỮ CẢNH không nêu, hoặc nêu khác đi (sai số, sai điều khoản, sai tài liệu).
+   Diễn đạt lại bằng từ khác mà cùng nghĩa vẫn là "supported". Khẳng định đúng với thực tế nhưng không có trong NGỮ CẢNH vẫn là "unsupported".
+3. Xác định câu trả lời thuộc loại nào:
+   - "answer": đưa ra kết luận hoặc thông tin cụ thể.
+   - "refusal": từ chối hoặc nói không đủ căn cứ để kết luận.
+   Nếu là "refusal", xác định loại:
+   - "i": câu hỏi nằm NGOÀI phạm vi quy định của corpus.
+   - "ii": câu hỏi thuộc phạm vi nhưng THIẾU dữ liệu tình huống (ví dụ thiếu hạng eKYC, thiếu nhật ký giao dịch gốc, thiếu quốc gia của giao dịch).
+4. So sánh loại thực tế với KỲ VỌNG và ghi nhận đúng/sai, tách riêng loại i và ii.
+
+Chỉ trả về MỘT đối tượng JSON hợp lệ, không có văn bản hay khối mã bao quanh:
+{"claims": [{"text": "<khẳng định>", "label": "supported|unsupported", "evidence_doc_id": "<DOCnnnn hoặc null>"}], "faithfulness": <số supported / tổng số khẳng định, làm tròn 2 chữ số; null nếu không có khẳng định>, "actual_outcome": "answer|refusal", "actual_refusal_type": "i|ii|null", "outcome_correct": true|false, "refusal_type_correct": true|false|null, "note": "<tối đa 1 câu, nêu khẳng định sai nặng nhất nếu có>"}
+
+Nếu không đủ dữ liệu để chấm, trả "faithfulness": null và giải thích trong "note". Không được tự bịa nhãn.
 ```
 
 2. **Trace dài:** `logs/staging_20261017_201308/step_events.jsonl` (12 câu; q05 là ba bản ghi đầu).
