@@ -280,9 +280,10 @@ def _retrieved_contexts(tool_name: str, tool_result: str) -> list[str] | None:
 
 # --- Structured decision metadata (C4 contract) -----------------------------
 # The runtime never infers a decision from free-form answer text. Decision
-# fields are populated only from an explicit structured decision supplied by an
-# injected ``decision_provider`` and only after fail-closed validation below.
-# With no provider (the production default today) every field stays ``None``.
+# fields are populated only from an explicit structured decision: either an
+# injected ``decision_provider`` (takes precedence) or the model's own
+# ``submit_decision`` tool call, and only after fail-closed validation below.
+# If neither supplies a decision, every field stays ``None``.
 _DECISION_OUTCOMES = frozenset({"answer", "refusal"})
 _REFUSAL_TYPES = frozenset({"i", "ii"})
 _DECISION_KEYS = frozenset({"outcome", "refusal_type", "policy_rule_id", "decision_source"})
