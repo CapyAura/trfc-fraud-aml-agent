@@ -7,8 +7,10 @@ provenance; it does not execute the LLM/MCP agent.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 from functools import partial
+import os
 from typing import Any
 
 from trfc.agent.loop import AgentRunResult, run_detailed
@@ -72,6 +74,9 @@ async def _run_case(
 
 
 async def _run_default_case(case: dict[str, Any]) -> dict[str, Any]:
+    interval = float(os.getenv("CASE_INTERVAL_SECONDS", "0"))
+    if interval > 0:
+        await asyncio.sleep(interval)
     return await _run_case(case)
 
 

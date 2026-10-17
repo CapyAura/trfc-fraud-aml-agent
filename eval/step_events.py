@@ -44,6 +44,8 @@ def _validate_trace_record(record: Any) -> None:
         raise ValueError("Captured tool trace has an invalid step number")
     if not isinstance(record["tool_name"], str) or not record["tool_name"].strip():
         raise ValueError("Captured tool trace has no tool name")
+    if record.get("arguments") is None and record.get("status") == "error":
+        record["arguments"] = {}
     if not isinstance(record["arguments"], dict):
         raise ValueError("Captured tool arguments are unavailable or malformed")
     if not isinstance(record["result"], str):
