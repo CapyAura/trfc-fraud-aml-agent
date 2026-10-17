@@ -10,7 +10,7 @@
 
 | Task | PowerShell command |
 |---|---|
-| Sync locked dependencies and dev test tools | `uv sync --locked --group dev` |
+| Sync locked dependencies and dev test tools | `uv sync --locked --extra dev` |
 | Run tests without B's default-database tests | `.venv\Scripts\python.exe -m pytest --ignore=tests/test_tools.py --basetemp .test-tmp/pytest` |
 | Validate the evaluation testset only | `.venv\Scripts\python.exe -m eval.run_eval --dry-run` |
 | Run the C6 client unit tests | `.venv\Scripts\python.exe -m unittest discover -s tests -p test_client2.py -v` |

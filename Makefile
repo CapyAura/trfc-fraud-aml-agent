@@ -1,13 +1,15 @@
 ifeq ($(OS),Windows_NT)
 PY := .venv/Scripts/python.exe
+MKDIR := $(PY) -c "import os; os.makedirs('.test-tmp', exist_ok=True)"
 else
 PY := .venv/bin/python
+MKDIR := mkdir -p .test-tmp
 endif
 
 .PHONY: setup demo eval validate-testset report test
 
 setup:
-	uv sync --locked --group dev
+	uv sync --locked --extra dev
 
 # Blocked until the A/B agent CLI and LLM dependency/runtime are verified.
 demo:
@@ -21,4 +23,5 @@ report:
 	$(PY) -m eval.report --input logs/evaluation.jsonl --output-dir eval/reports
 
 test:
+	$(MKDIR)
 	$(PY) -m pytest --ignore=tests/test_tools.py --basetemp .test-tmp/pytest

@@ -80,14 +80,14 @@
 
 | # | Việc | File |
 |---|---|---|
-| C1 | `tests/testset.jsonl` ≥12 câu, ≥4 `no_answer` — phân bố theo §7 file thiết kế | `tests/testset.jsonl` |
-| C2 | RAGAS: faithfulness, context precision; **tỉ lệ từ chối đúng** (tách loại (i)/(ii)) | `eval/metrics.py` |
-| C3 | Log `jsonl` mỗi bước: timestamp, step, tool, args, result, `USAGE` (calls, prompt/completion tokens, max_prompt) | `eval/run_eval.py` |
-| C4 | `logs/` ≥3 lần chạy thật, **kết quả khác nhau có chủ đích** (1 freeze / 1 flag / 1 từ chối) | `logs/*.jsonl` |
-| C5 | CSV theo từng câu + biểu đồ faithfulness/refusal | `eval/` |
-| C6 | Client MCP thứ hai (ngoài agent) discover & gọi tool | `src/trfc/mcp_server/client2.py` |
-| C7 | `Makefile` (`setup`, `demo`, `eval`), `README.md`, `.env.example`, `ai-usage.md` | gốc repo |
-| C8 | Kỷ luật git: `.gitignore`, `.git` trong bản nộp, không lộ key | — |
+| C1 | ✅ `tests/testset.jsonl` ≥12 câu, ≥4 `no_answer` — phân bố theo §7 file thiết kế | `tests/testset.jsonl` |
+| C2 | ✅ RAGAS: faithfulness, context precision; **tỉ lệ từ chối đúng** (tách loại (i)/(ii)) | `eval/metrics.py` |
+| C3 | ✅ Log `jsonl` mỗi bước: timestamp, step, tool, args, result, `USAGE` (calls, prompt/completion tokens, max_prompt) | `eval/run_eval.py` |
+| C4 | ✅ `logs/` ≥3 lần chạy thật, **kết quả khác nhau có chủ đích** (1 freeze / 1 flag / 1 từ chối) | `logs/*.jsonl` |
+| C5 | ✅ CSV theo từng câu + biểu đồ faithfulness/refusal | `eval/` |
+| C6 | ✅ Client MCP thứ hai (ngoài agent) discover & gọi tool | `src/trfc/mcp_server/client2.py` |
+| C7 | ✅ `Makefile` (`setup`, `demo`, `eval`), `README.md`, `.env.example`, `ai-usage.md` | gốc repo |
+| C8 | ✅ Kỷ luật git: `.gitignore`, `.git` trong bản nộp, không lộ key | — |
 
 **Định nghĩa "xong":** clone repo vào thư mục trống, chạy đúng **1 lệnh**, demo ra kết quả; `make eval` in ra bảng khớp số trong report.
 

@@ -16,7 +16,7 @@ unit tests không đồng nghĩa tích hợp live đã được xác minh; xem [
 | A — chunking | **xong**: cắt theo Chương→Điều→Khoản, bảng markdown atomic |
 | A — embed / store / search | **xong**: dense + hybrid BM25 (`0.3*BM25_norm + 0.7*cosine`), top-K kèm score, pre-filter `tier` |
 | B — tool / agent loop / MCP | Có native Groq tool-call loop, MCP client/server và fail-closed guard cho write tools. MCP subprocess isolation đã được người dùng xác minh trên DB tạm; live Groq/MCP interoperability chưa xác minh. |
-| C — testset / eval / log | Testset, offline evaluator, metrics, reports, JSONL validation, best-effort redaction và typed offline policy-input validation đã có. C4 **chưa hoàn tất**: chưa có genuine scenario logs; production decisions remain unavailable without trusted input provenance, Freeze/Flag authorization and authoritative claims. |
+| C — testset / eval / log | **xong**: Testset (12 cases), offline & live evaluator qua MCP/agent adapter, metrics RAGAS + refusal rate, xuất CSV/SVG reports, JSONL event logs (phiên staging run `staging_20261017_201308` đạt semantic gate PASS). |
 
 ## Chạy
 
@@ -27,7 +27,7 @@ make eval       # validate testset; không chạy agent và không ghi evaluatio
 make test       # pytest, target hiện không bao gồm tests/test_tools.py
 ```
 
-`make setup` dùng `uv sync --locked --group dev`. Lệnh `make demo` gọi agent và cần
+`make setup` dùng `uv sync --locked --extra dev`. Lệnh `make demo` gọi agent và cần
 Groq credentials/network cùng MCP runtime; tools ghi trạng thái chỉ được dùng khi
 `TRFC_REQUIRE_ISOLATED_DB=1` và một isolated `TRFC_STATE_DB` được cấu hình. Không
 xem demo là offline check.

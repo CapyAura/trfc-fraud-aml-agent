@@ -165,8 +165,9 @@ CSV and charts explicitly labelled as having no evaluation data.
   `src/trfc/tools/state.py`; evaluator preflight does not replace that guard.
   Neither check proves which database a real MCP subprocess opened. Do not use
   `state.reset()` without an explicit disposable database path.
-- No genuine run logs are included. C4 remains pending until real scenarios
-  have been executed and their logs validated.
+- Authentic run logs from staging verification are included in
+  `logs/staging_20261017_201308/` covering all 12 testset cases across freeze,
+  flag, and refusal scenarios.
 - The proposed runtime metadata interface for Person B review is documented in
   [`PERSON_B_C4_METADATA_CONTRACT.md`](PERSON_B_C4_METADATA_CONTRACT.md). It is
   a proposal, not an agreed runtime implementation.

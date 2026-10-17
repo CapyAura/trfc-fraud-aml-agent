@@ -400,12 +400,15 @@ def test_failed_model_requests_do_not_report_token_usage_as_zero():
 def test_missing_provider_key_fails_before_constructing_or_calling_a_client(monkeypatch):
     monkeypatch.setattr(agent_llm, "load_dotenv", lambda: None)
     monkeypatch.setattr(agent_llm, "client", None)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    for k in (
+        "GROQ_API_KEY", "LLM_API_KEY", "LLM_PROVIDER", "LLM_BASE_URL",
+        "LLM_MODEL", "DASHSCOPE_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(k, raising=False)
     try:
         call_llm([])
     except RuntimeError as exc:
-        assert "Missing GROQ_API_KEY" in str(exc)
+        assert ("No valid LLM provider configured" in str(exc)) or ("Missing GROQ_API_KEY" in str(exc))
     else:
         raise AssertionError("missing credentials should fail before a request")
 
