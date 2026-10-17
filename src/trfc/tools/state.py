@@ -124,6 +124,24 @@ def require_isolated_database_for_writes(path: Path | str | None = None) -> None
             raise _WriteBlockedError(
                 "Write operation blocked: configured database resolves to the default state.db"
             )
+        prod_path = (ROOT / "data" / "state.db").resolve()
+        if configured_path == prod_path:
+            raise _WriteBlockedError(
+                "Write operation blocked: configured database resolves to the production data/state.db"
+            )
+        if os.environ.get("TRFC_REQUIRE_OUTSIDE_REPO", "").strip().lower() in {"1", "true", "yes"}:
+            try:
+                configured_path.relative_to(ROOT.resolve())
+                raise _WriteBlockedError(
+                    f"Write operation blocked: {DB_PATH_ENV} must be outside the repository ({configured_path})"
+                )
+            except ValueError:
+                pass  # verified outside repository
+        if os.environ.get("TRFC_PREVENT_DB_OVERWRITE", "").strip().lower() in {"1", "true", "yes"}:
+            if configured_path.exists():
+                raise _WriteBlockedError(
+                    f"Write operation blocked: staging database already exists at {configured_path} (collision prevented)"
+                )
         if configured_path.exists() and not configured_path.is_file():
             raise _WriteBlockedError(
                 f"Write operation blocked: {DB_PATH_ENV} must identify a SQLite file path"

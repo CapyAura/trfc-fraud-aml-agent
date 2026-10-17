@@ -331,6 +331,11 @@ def _record_decision(raw_arguments: str, submitted: list[dict[str, Any]]) -> str
         error = "refusal_type only applies when outcome is refusal"
     if error is not None:
         return f"Tool error: {error}"
+    if "policy_rule_id" in arguments and (
+        arguments["policy_rule_id"] is None
+        or (isinstance(arguments["policy_rule_id"], str) and not arguments["policy_rule_id"].strip())
+    ):
+        arguments.pop("policy_rule_id", None)
     submitted[:] = [arguments]  # last valid declaration wins
     return "Decision recorded."
 
@@ -532,6 +537,7 @@ async def run_with_session(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
         ]
+        search_policy_calls = 0
         for step in range(1, max_steps + 1):
             try:
                 response = model_request(messages, tools=schemas)
@@ -616,25 +622,38 @@ async def run_with_session(
                 else:
                     try:
                         arguments = json.loads(raw_arguments)
+                        if not isinstance(arguments, dict):
+                            error = f"Malformed JSON arguments: expected JSON object, got {type(arguments).__name__}"
+                            arguments = {}
                     except (json.JSONDecodeError, TypeError) as exc:
                         error = f"Malformed JSON arguments: {exc}"
+                        arguments = {}
                     if error is None:
                         input_schema = _field(tool, "input_schema", _field(tool, "inputSchema"))
                         error = _validate_arguments(arguments, input_schema)
                     if error is None:
                         try:
-                            tool_result = await session.call_tool(name, arguments)
-                            tool_result_text, status = _tool_output(tool_result)
-                            if status == "error":
-                                error = tool_result_text
-                            elif name == "search_policy":
-                                retrieved = _retrieved_contexts(name, tool_result_text)
-                                if retrieved is None:
-                                    contexts_capture_complete = False
-                                else:
-                                    if result.contexts is None:
-                                        result.contexts = []
-                                    result.contexts.extend(retrieved)
+                            if name == "search_policy":
+                                search_policy_calls += 1
+                                if search_policy_calls > 2:
+                                    tool_result_text = (
+                                        "Thông báo hệ thống: Đã tra cứu đủ thông tin chính sách (tối đa 2 lần). "
+                                        "Hãy tổng hợp các điều khoản đã tìm thấy và đưa ra quyết định."
+                                    )
+                                    status = "completed"
+                            if status != "completed" or name != "search_policy" or search_policy_calls <= 2:
+                                tool_result = await session.call_tool(name, arguments)
+                                tool_result_text, status = _tool_output(tool_result)
+                                if status == "error":
+                                    error = tool_result_text
+                                elif name == "search_policy":
+                                    retrieved = _retrieved_contexts(name, tool_result_text)
+                                    if retrieved is None:
+                                        contexts_capture_complete = False
+                                    else:
+                                        if result.contexts is None:
+                                            result.contexts = []
+                                        result.contexts.extend(retrieved)
                         except Exception as exc:
                             error = f"Tool execution failed: {type(exc).__name__}: {exc}"
                 if error is not None:

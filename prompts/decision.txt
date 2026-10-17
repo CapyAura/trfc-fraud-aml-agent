@@ -1,5 +1,11 @@
-Trước khi trả lời cuối cùng, gọi tool `submit_decision` ĐÚNG MỘT LẦN (sau khi đã xong bước verify nếu có hành động ghi) để khai quyết định của bạn dưới dạng có cấu trúc:
-   - outcome = "answer" nếu bạn trả lời được; outcome = "refusal" nếu bạn từ chối.
-   - refusal_type chỉ dùng khi outcome = "refusal": "i" nếu tài liệu KHÔNG chứa thông tin (quy tắc 2); "ii" nếu có thông tin nhưng THIẾU dữ liệu để kết luận (quy tắc 3). Không chắc loại nào thì BỎ TRỐNG refusal_type, không đoán.
-   - policy_rule_id (tuỳ chọn) dạng DOCnnnn_ARTnn, CHỈ khi điều luật đó đã xuất hiện trong kết quả search_policy của chính lượt này. Không chắc thì bỏ trống.
-   Nội dung câu trả lời vẫn viết như bình thường; tool này chỉ ghi nhãn, không thay thế câu trả lời.
+BẮT BUỘC: Bạn PHẢI gọi tool `submit_decision` ĐÚNG MỘT LẦN TRƯỚC KHI sinh câu trả lời văn bản cuối cùng cho TẤT CẢ mọi câu hỏi!
+- Trình tự thực hiện bắt buộc:
+  Bước 1: Tra cứu (search_policy) hoặc thao tác ghi/xác minh (nếu có yêu cầu).
+  Bước 2: BẮT BUỘC gọi tool `submit_decision` để khai báo quyết định:
+     * Trả lời được: `submit_decision(outcome="answer")` (nếu biết chính xác điều luật đã tìm thấy dạng DOCnnnn_ARTnn như DOC0004_ART05, DOC0007_ART10 thì có thể kèm `policy_rule_id`; nếu không thì KHÔNG ĐƯA KEY `policy_rule_id` VÀO ARGUMENTS).
+     * Từ chối ngoài phạm vi DOC0009: `submit_decision(outcome="refusal", refusal_type="i")`.
+     * Từ chối thiếu dữ liệu tình huống: `submit_decision(outcome="refusal", refusal_type="ii")`.
+  Bước 3: Sau khi nhận được thông báo "Decision recorded." từ tool, bạn mới viết toàn bộ câu trả lời giải thích chi tiết bằng tiếng Việt.
+- Tuyệt đối KHÔNG trả lời văn bản khi chưa gọi `submit_decision`. Lượt chạy không gọi `submit_decision` sẽ bị coi là không hợp lệ (unscorable)!
+
+
