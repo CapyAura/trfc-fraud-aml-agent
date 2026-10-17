@@ -33,8 +33,9 @@ Groq credentials/network cùng MCP runtime; tools ghi trạng thái chỉ đư�
 xem demo là offline check.
 
 **Trạng thái xác minh gần nhất của working tree:** full offline pytest suite đã pass
-trên Python 3.14.7 bằng `.venv` của dự án: adapter tests **14 passed**, focused
-regression suite **118 passed, 1 skipped**, full suite **142 passed, 1 skipped**.
+trên Python 3.13.5 bằng `.venv` của dự án: adapter tests **19 passed**, focused
+regression suite (`test_tools` + `test_native_tool_calling` + `test_client2` +
+`test_db_isolation`) **76 passed**, full suite **368 passed, 0 skipped**.
 `git diff --check` không có whitespace error; Git chỉ báo LF-to-CRLF working-copy
 notices. Các kết quả trên chỉ xác nhận automated test coverage. Người dùng đã
 báo cáo riêng MCP subprocess isolation PASS trên DB tạm; lần triển khai policy

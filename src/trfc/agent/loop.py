@@ -869,21 +869,104 @@ async def run(question: str) -> str:
     return result.answer or ""
 
 
+def _render_pretty(result: AgentRunResult) -> str:
+    """Human-readable terminal view. Machine callers keep the JSON default."""
+    out: list[str] = []
+    status = result.status.upper()
+    outcome = result.actual_outcome or "-"
+    refusal = f" (loại {result.actual_refusal_type})" if result.actual_refusal_type else ""
+    out.append(f"STATUS   {status}   outcome={outcome}{refusal}")
+
+    if result.policy_rule_id or result.policy_decision_status:
+        out.append(
+            f"DECISION rule={result.policy_rule_id or '-'} "
+            f"status={result.policy_decision_status or '-'} "
+            f"reason={result.policy_reason_code or '-'} "
+            f"source={result.decision_source or '-'}"
+        )
+
+    trace = result.tool_trace or []
+    if trace:
+        out.append(f"TOOLS    {len(trace)} call(s)")
+        for entry in trace:
+            step = entry.get("step", "?")
+            name = entry.get("tool_name", "?")
+            args = entry.get("arguments") or {}
+            arg_text = ", ".join(f"{k}={_clip(v)}" for k, v in args.items())
+            raw = entry.get("result")
+            out.append(f"  [{step}] {name}({arg_text})")
+            out.append(f"      -> {_summarise_tool_result(raw)}")
+
+    contexts = result.contexts or []
+    if contexts:
+        out.append(f"SOURCES  {len(contexts)} chunk(s)")
+        for ctx in contexts:
+            first = ctx.splitlines()[0] if ctx else ""
+            out.append(f"  - {_clip(first, 120)}")
+
+    usage = result.usage or {}
+    if usage:
+        out.append(
+            f"USAGE    calls={usage.get('calls')} "
+            f"prompt={usage.get('prompt_tokens')} "
+            f"completion={usage.get('completion_tokens')} "
+            f"max_prompt={usage.get('max_prompt')}"
+        )
+
+    if result.answer:
+        out.append("")
+        out.append("ANSWER")
+        out.append(result.answer)
+
+    if result.error:
+        out.append("")
+        out.append(f"ERROR    {result.error}")
+
+    return "\n".join(out)
+
+
+def _clip(value: Any, limit: int = 60) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _summarise_tool_result(raw: Any) -> str:
+    """Collapse search_policy's chunk JSON to doc ids + scores; keep other results short."""
+    text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+    if text.startswith("Error:"):
+        return _clip(text, 160)
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return _clip(text, 160)
+    if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) and "doc_id" in parsed[0]:
+        parts = [
+            f"{c.get('doc_id')}@{c.get('version')}:{c.get('score'):.3f}"
+            if isinstance(c.get("score"), (int, float))
+            else str(c.get("doc_id"))
+            for c in parsed
+        ]
+        return f"{len(parsed)} chunk(s): " + ", ".join(parts)
+    return _clip(text, 160)
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    if len(sys.argv) < 2:
-        print('Usage: python -m trfc.agent.loop "question"', file=sys.stderr)
-        return 2
-
     args = sys.argv[1:]
+    pretty = "--pretty" in args
+    args = [a for a in args if a != "--pretty"]
     text_react = "--text-react" in args
     args = [a for a in args if a != "--text-react"]
     if not args:
-        print('Usage: python -m trfc.agent.loop [--text-react] "question"', file=sys.stderr)
+        print('Usage: python -m trfc.agent.loop [--pretty] [--text-react] "question"', file=sys.stderr)
         return 2
     extra = {"text_react": True} if text_react else {}
     result = asyncio.run(run_detailed(" ".join(args), **extra))
+    if pretty:
+        print(_render_pretty(result))
+        return 0 if result.status == "completed" else 1
+
     output_dict = {
         "status": result.status,
         "answer": result.answer,

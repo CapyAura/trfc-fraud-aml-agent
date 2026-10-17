@@ -1,211 +1,175 @@
-# Việc cần fix — Person C
+# FIX_C — Việc còn lại của Thành viên C
 
-> Lập ngày 2026-10-17, cập nhật sau commit [`8c77866`](https://github.com/) (C phản hồi lần 1).
-> Đối chiếu [PHAN_CONG.md](PHAN_CONG.md) §4 (C1–C8), [CLAUDE.md](CLAUDE.md) §4–§5, §12.
+> Cập nhật **2026-10-18** sau khi A/B đã sửa xong phần report.
+> **Không còn TODO nào về số liệu trong 3 file báo cáo** — T4a/T4b/T4d/T6 đã xong, đừng làm lại.
 >
-> **Ưu tiên còn lại: F2 → F5e → F4b → F6.** F2 là điều kiện chặn nộp — GV đọc file này là mất điểm trung thực.
+> **Thứ tự: T1 → T2 → T3b → T5 → F4b.** Chỉ **T1** chặn nộp.
+
+| # | Việc | Chặn nộp? | Trạng thái |
+|---|---|:---:|---|
+| **T1** | Ghép 3 file `.md` → `report.docx` (8–9 trang, 9 mục) | 🔴 **CÓ** | ❌ `report.docx` chưa tồn tại |
+| **T2** | `make eval` chỉ `--dry-run`; `ai-usage.md:16-17` claim sai | 🟡 Không | ❌ |
+| **T3b** | `eval/README.md` còn bộ số cũ + câu "No genuine run logs" | 🟡 Không | ❌ |
+| **T5** | Testset chưa có câu dùng `tier` → không claim được bonus +1 | ➖ Không | ❌ |
+| **F4b** | `test_native_tool_calling.py:411` còn nhánh `or` làm assert vô nghĩa | ➖ Không | ❌ |
 
 ---
 
-## Trạng thái sau commit `8c77866`
+## T1 🔴 Ghép `report.docx` — **CHẶN NỘP**
 
-| # | Việc | Trạng thái |
-|---|---|---|
-| F1 | `logs/` có lần chạy thật | ✅ **Xong** — `logs/staging_20261017_201308/` đủ 5 file |
-| F2 | `c4_final_report.md` khai PASS khống | ❌ **Chưa đụng** — còn 3 chỗ sai, xem dưới |
-| F3 | `make setup` hỏng | ✅ **Xong** — `--extra dev` (L12) + `MKDIR` (L3/6) |
-| F4 | Test assert cũ | ⚠️ **Pass nhưng sửa sai cách** — xem F4 |
-| F5a | `eval/reports/` | ✅ Có `evaluation.csv` + 2 SVG |
-| F5b | `tests/test_tools.py` | ➖ Không đụng — lý do đã ghi ở [Makefile.txt:18-19](Makefile.txt#L18-L19), chấp nhận được |
-| F5c | Tick C1–C8 | ✅ |
-| F5d | Commit `ai-usage.md` | ✅ |
-| F5e | `report.docx` | ❌ **Chưa có** |
+`report.docx` **không có trong repo** (`ls report.docx` → không tồn tại). Đây là deliverable #1 của
+[CLAUDE.md §4](CLAUDE.md#4-sản-phẩm-phải-nộp).
 
-**Câu hỏi ở mục cuối vẫn chưa được trả lời.** C push log lên nhưng không giải thích nguồn "359 passed" và DB `D:\Work\AIPR\...`.
+### T1a — Bản đồ ghép (đã cập nhật, đừng dùng bản cũ)
+
+| Mục | Lấy từ | Dòng | Ghi chú |
+|---|---|---|---|
+| §1 Vấn đề, phạm vi, giả định | `REPORT.md` | 30–78 | A viết xong |
+| §2 Kiến trúc tổng thể | **`REPORT_B_.md`** | 3–27 | Sơ đồ ASCII thật + bốn ranh giới + luồng q05 |
+| §3 Thiết kế RAG | `REPORT.md` | 117–225 | **§3.5 đã có số đo thật** (dense vs hybrid), không còn TODO |
+| §4 Agent & tool | **`REPORT_B_.md`** | 28–99 | Trace q05 thật, bảng 3 bước |
+| §5 MCP server | **`REPORT_B_.md`** | 100–119 | **dòng 118 đã sửa** — provider/model ghi đúng "log không lưu" |
+| §6 Đánh giá | `REPORT_PERSON_C.md` | 9–119 | C; **6 lỗi số liệu đã sửa**, số khớp `evaluation.csv` |
+| §7 Hạn chế | `REPORT.md` | 355–392 | A viết xong, 4 hạn chế trung thực |
+| §8 Phân công | `REPORT_PERSON_C.md` | 121–141 | C; **đã xoá cột `Tỷ lệ đóng góp`**, 68 commits đúng |
+| §9 Phụ lục | **`REPORT_B_.md`** | 120–227 | Prompt nguyên văn; **dòng 122 đã sửa** (`react_step.txt` được nạp thật) |
+
+**Bỏ hẳn — KHÔNG chép sang `.docx`:**
+
+| Vùng | Lý do |
+|---|---|
+| `REPORT.md:1-28` | Tiêu đề khung + 4 blockquote nội bộ + bảng phân trang + deadline CP5 |
+| `REPORT.md:79-116` | Khung §2 cũ — sơ đồ còn ghi 4 tool, **sai**: trace thật q05 chỉ 3 tool, không có `get_transactions`. Đã thay bằng `REPORT_B_.md:3-27` |
+| `REPORT.md:222-225` | `> **Ghi chú cho A — KHÔNG đưa vào `.docx**` — 4 dòng, tuyệt đối không được lọt vào bản nộp |
+| `REPORT.md:227-265` | Khung §4/§5 (đã thay bằng B) |
+| `REPORT.md:266-354` | Khung §6 (đã thay bằng `REPORT_PERSON_C.md`) |
+| `REPORT.md:393-410` | Khung §8 (đã thay bằng `REPORT_PERSON_C.md`) |
+| `REPORT.md:411-419` | Khung §9 (đã thay bằng `REPORT_B_.md`) |
+| `REPORT.md:420-431` | Checklist trước khi ghép `.docx` — ghi chú nội bộ |
+| `REPORT_PERSON_C.md:3-5` | 3 blockquote nội bộ ở đầu ("Tài liệu nguồn căn cứ…") |
+| `REPORT_PERSON_C.md:145-156` | "Bảng Checklist hoàn tất của Thành viên C" — ghi chú nội bộ |
+
+**Kiểm tra trước khi convert:**
+
+```bash
+# 1. Không còn ghi chú nội bộ
+grep -n "KHÔNG đưa vào\|Ghi chú cho A\|Checklist hoàn tất\|Checklist trước khi ghép\|Bảng phân trang" <file-ghép>
+# 2. Không còn TODO
+grep -n "\[\[TODO" <file-ghép>
+# 3. Đúng 9 mục, đúng thứ tự §1→§9
+grep -n "^#\{1,2\} §" <file-ghép>
+```
+
+**`REPORT_PERSON_C.md` CHƯA ĐƯỢC TRACK GIT** — `git ls-files REPORT_PERSON_C.md` → rỗng.
+Phải `git add REPORT_PERSON_C.md` trước khi nộp, nếu không phần §6/§8 mất khỏi repo.
+
+**Đếm trang sau khi format** — yêu cầu 8–9 trang. §9 Phụ lục không tính trang.
 
 ---
 
-## F1 ✅ `logs/` — đã xong
+## T2 🟡 `make eval` không tái lập được số liệu
+
+[Makefile:19-20](Makefile#L19) chỉ chạy `--dry-run`:
 
 ```
-logs/staging_20261017_201308/
-├── evaluation.jsonl              (12 dòng, timestamp thật 2026-10-17T13:13Z)
-├── step_events.jsonl             (13 dòng)
-├── decision_events.jsonl         (12 dòng)
-├── semantic_gate_result.json     (overall: PASS)
-└── reports/
-    ├── evaluation.csv
-    ├── faithfulness.svg
-    └── refusal_correctness.svg
+$ make eval
+.venv/Scripts/python.exe -m eval.run_eval --dry-run
+DRY RUN: valid testset (12 cases); no agent/API called and no evaluation scores produced.
 ```
 
-Không cần làm gì thêm. **Lưu ý:** [logs/README.md](logs/README.md) yêu cầu *"3 lần chạy KHÁC NHAU CÓ CHỦ ĐÍCH (1 freeze / 1 flag / 1 từ chối)"*. Hiện có **1 lần chạy** phủ cả 3 kịch bản (q05 freeze, q06 flag, q09–q12 refusal). Nếu GV hiểu là 3 **lần chạy** riêng biệt thì phải chạy thêm 2 lần nữa — hỏi lại cho chắc, hoặc chạy thêm cho an toàn.
+Nhưng [CLAUDE.md §5](CLAUDE.md#5-yêu-cầu-kỹ-thuật-bắt-buộc) và §12 ghi *"`make eval` tái lập mọi số liệu"*,
+và [PHAN_CONG.md:79](PHAN_CONG.md#L79) ghi *"`make eval` in ra bảng khớp số trong report"*.
+Số trong report đến từ lần chạy thật cần `--agent-adapter` + LLM sống — **không tái lập offline được**.
+
+**Câu sai:** [ai-usage.md:16-17](ai-usage.md#L16) — *"Mọi số trong `eval/reports/` đều lấy từ lần chạy thật,
+tái lập bằng `make eval`."* Vế sau sai.
+
+**Chọn một (khuyên làm cả hai):**
+
+- **(a) Thêm target `eval-live`** vào Makefile (~3 dòng, không có `--dry-run`, có `--agent-adapter`),
+  giữ `eval` là validate offline. Rồi sửa `ai-usage.md` thành *"tái lập bằng `make eval-live` (cần LLM key + network)"*.
+- **(b) Chỉ sửa câu chữ** — nói đúng: số lấy từ `logs/staging_20261017_201308/`, không tái lập offline.
+
+**Lưu ý cold start:** máy dev **không có GNU `make`** (chỉ `mingw32-make`). Nếu GV cũng dùng Windows
+không có GNU make thì `make setup && make demo` chết ngay ở [CLAUDE.md §9](CLAUDE.md#9-liêm-chính-học-thuật--buổi-bảo-vệ) TT1.
+README cần ghi rõ yêu cầu GNU make + lệnh thay thế.
 
 ---
 
-## F2 🔴 `c4_final_report.md` vẫn tuyên bố PASS trên số liệu sai — **CHẶN NỘP**
+## T3b 🟡 `eval/README.md` còn bộ số cũ
 
-Log bây giờ là thật, nên đường 1 của lần trước đã đúng. Nhưng file report **chưa được sửa theo bằng chứng thật**. Còn đúng 3 chỗ sai:
+**`eval/README.md:241-245`** — sửa thành:
 
-### F2a — [c4_final_report.md:3](reports/verification/c4_final_report.md#L3)
+| Đang viết | Sự thật (đo lại 2026-10-18) |
+|---|---|
+| `Python 3.14.7` | **Python 3.13.5** |
+| Adapter tests: `14 passed` | **19 passed** |
+| Focused regression: `118 passed, 1 skipped` | **76 passed** |
+| Full suite: `142 passed, 1 skipped` | **368 passed, 0 skipped** |
 
-```
-**Current Verified Status (2026-10-17): PASS — ALL ACCEPTANCE GATES SATISFIED.**
-```
-
-Không sai về mặt log, nhưng câu ngay dưới (L4) mới là chỗ sai — xem F2b. Nếu sửa F2b thì L3 giữ nguyên được.
-
-### F2b — [c4_final_report.md:4](reports/verification/c4_final_report.md#L4): "0 unscorable cases"
-
-**Sai sự thật.** `eval/reports/evaluation.csv` cột `faithfulness` = `Unscorable` ở **cả 12/12 câu**:
-
-```
-faithfulness Counter({'Unscorable': 12})
-```
-
-Nghĩa là metric faithfulness **không chấm được claim nào**, không phải "0 case không chấm được". Đây là loại sai nguy hiểm nhất: con số nghe tốt nhưng ngược nghĩa.
-
-**Sửa L4 thành:**
-
-```markdown
-Real staging pipeline executed across all 12 test cases (`logs/staging_20261017_201308/`), achieving 100% case completion, 0 errors, 0 HTTP 429/503 errors, 100% refusal accuracy (2/2 type i, 2/2 type ii), successful Freeze write & verification (`q05`), successful Flag write & verification (`q06`), and full semantic gate PASS with `--require-events`. **Faithfulness is `Unscorable` on all 12 cases** — the string-match metric produced no scorable claims; this is a metric limitation, not a pass. `answer_correctness` is False on `q05` (calc) and `q08` (multi_doc).
-```
-
-### F2c — [c4_final_report.md:21](reports/verification/c4_final_report.md#L21): "359 passed, 1 skipped"
-
-**Sai.** Chạy lại trên HEAD `8c77866`:
-
-```
-.venv/Scripts/python.exe -m pytest -q --ignore=tests/test_tools.py
-→ 356 passed in 13.14s
-```
-
-Sửa thành đúng số đo được trên máy này **sau khi chạy lại**, kèm commit hash:
-
-```markdown
-| Focused offline tests and dry-run | **PASS** | PASS (offline only) | Full test suite: 356 passed in 13.14s at commit `8c77866` (`pytest -q --ignore=tests/test_tools.py`). `python -m eval.run_eval --dry-run` exit code 0. |
-```
-
-Nếu chạy lại ra số khác thì **ghi số mới**, đừng giữ 359.
-
-### F2d — [c4_final_report.md:18](reports/verification/c4_final_report.md#L18): DB ngoài repo
-
-```
-D:\Work\AIPR\staging_c4_20261017_201308\state.db
-```
-
-Đường dẫn này **không tồn tại trong repo và không ai khác kiểm chứng được**. Thay bằng bằng chứng đọc được từ log đã commit — `step_events.jsonl` của q05/q06 có `freeze_account_temporarily` → `get_account_risk_status` và `flag_suspicious_tx` → `get_account_risk_status`. Dẫn file + số dòng, bỏ đường dẫn tuyệt đối đi.
-
-### F2e — `eval/README.md` nói ngược lại
-
-[eval/README.md:235](eval/README.md#L235) vẫn ghi:
-
-> No genuine run logs are included, so do not treat `make demo`, a real evaluation, or report values as verified until the A/B integration and real scenarios have run.
-
-Trong khi [README.md:19](README.md#L19) đã khai C "**xong**" với log thật. Hai file trong cùng repo nói ngược nhau — GV đọc là thấy ngay. Sửa `eval/README.md:235` thành: log thật nằm ở `logs/staging_20261017_201308/`, tái lập bằng `scripts/run_c4_staging.ps1`.
+**`eval/README.md:235-237`** — *"No genuine run logs are included, so do not treat … report values as
+verified until the A/B integration and real scenarios have run."* — **sai**: `logs/staging_20261017_201308/`
+đã có log thật và **đã track git** (`git ls-files logs/` → 7 file). Câu này viết từ trước commit `8c77866`.
 
 ---
 
-## F3 ✅ `make setup` — đã xong
+## T5 ➖ Bonus +1 metadata filter
 
-[Makefile:12](Makefile#L12) `uv sync --locked --extra dev`; [Makefile:3,6](Makefile#L3) tạo `.test-tmp` trước pytest. `Makefile.txt:13` và `README.md` cũng đã sửa.
+Code đã sẵn (`tier` pre-filter ở [search.py:55](src/trfc/rag/search.py#L55), `search_policy(query, k, tier, mode)`
+ở [impl.py:190](src/trfc/tools/impl.py#L190)), nhưng:
 
-**Chưa ai verify cold-start thật** (xoá `.venv` → `make setup`). Nếu chưa làm thì làm trước buổi bảo vệ — đây là bài "Cold start" GV chạy tại chỗ.
+```
+grep -rn "tier" eval/*.py src/trfc/agent/loop.py   →  0 hit
+grep -c '"tier"' tests/testset.jsonl               →  0
+```
+
+Không có câu testset nào dùng `tier` → **không claim được** bonus +1.
+
+**Cách lấy (+1):** thêm 1 câu testset có `tier` (vd. hỏi policy chỉ áp cho `tier: "high"`), chạy lại eval,
+thêm 1 dòng vào bảng §6. **Testset thuộc C — A/B không được sửa.**
+
+> Đã có 2/4 bonus: CSV + SVG graph (+1), `client2.py` client MCP thứ hai (+1).
+> Bonus thứ 3 (dense-vs-hybrid) **đã có số** ở `REPORT.md` §3.5 — nhưng số đó đo bằng script ngoài,
+> chưa nối vào `make eval`; muốn claim chắc thì thêm target như T2a.
 
 ---
 
-## F4 ⚠️ Test assert — pass, nhưng sửa ngược chỉ dẫn
+## F4b ➖ Assert có nhánh `or` làm test vô nghĩa
 
-FIX_C lần trước ghi rõ: *"**Không** sửa `llm.py` cho khớp test"*. C vẫn sửa `llm.py` (đổi `Missing GROQ_API_KEY` → `Please set GROQ_API_KEY`), **và** đổi assert thành:
+[tests/test_native_tool_calling.py:411](tests/test_native_tool_calling.py#L411):
 
 ```python
 assert ("No valid LLM provider configured" in str(exc)) or ("Missing GROQ_API_KEY" in str(exc))
 ```
 
-### F4b — bỏ vế `or`
+`llm.py:101` raise `"No valid LLM provider configured…"` khi không có provider nào; `llm.py:110/129` raise
+`"Missing GROQ_API_KEY…"`. Test này xoá **cả** `LLM_PROVIDER` nên phải đi nhánh 101 — nhánh `or` thứ hai
+chỉ làm assert đúng với **hai** hành vi khác nhau. Bỏ nhánh `or`, chỉ giữ `"No valid LLM provider configured"`,
+để test bắt được hồi quy thật.
 
-Cái `or` làm assert **luôn pass** với cả chuỗi cũ, tức là test không còn bảo vệ gì. Sửa về một vế:
-
-```python
-assert "No valid LLM provider configured" in str(exc)
-```
-
-Việc sửa `llm.py` thì chấp nhận được — chuỗi mới vẫn đúng và vẫn multi-provider, không cần revert.
+> File này do C viết (`git log` → 2 commit của `Penguin-cell34`).
 
 ---
 
-## F5e 🔴 `report.docx` chưa có — **CHẶN NỘP**
+## Đã xong — KHÔNG làm lại
 
-`ls report.docx` → không có file. Đây là sản phẩm nộp chính theo [CLAUDE.md](CLAUDE.md) §4 mục 1: **8–9 trang, đúng 9 mục**.
+A/B đã sửa trong lượt này, đừng chạm vào:
 
-**Việc của C** ([PHAN_CONG.md:114](PHAN_CONG.md#L114)). Nguồn nội dung: [REPORT.md](REPORT.md) — A viết xong §1/§3/§7, B viết §2/§4/§5/§9, C viết §6/§8.
+- ✅ **T4a** — `REPORT_B_.md:118` provider/model: đã ghi đúng "log không lưu", không suy từ `llm.py:24`.
+- ✅ **T4b** — `REPORT.md` §3.5 dense-vs-hybrid: đã có bảng số đo thật + phân tích `q01`/`q09`.
+- ✅ **T4d** — `REPORT_B_.md:122`: `react_step.txt` được nạp thật qua `load_react_prompt()`, `judge.txt` không có code nạp.
+- ✅ **T6** — `REPORT_PERSON_C.md`: model claim, `get_account_risk_status`, `368 passed`/`Python 3.13.5`,
+  đường dẫn DB, cột `Tỷ lệ đóng góp` (đã xoá), `68 commits` (38/12/11/7), câu "không còn TODO", 7 link `file:///D:/Work/...`.
+- ✅ **`REPORT_PERSON_C.md:74`** — câu đổ lỗi "cơ chế ẩn danh hóa dữ liệu (redaction)" cho `q05`/`q08` là **sai**, đã sửa
+  thành **paraphrase**: `run_eval.py:284-300` tính `answer_correctness` **trước** `redact_for_log()` ở `:314`; log thật
+  cho thấy `q05` có `44%` nhưng thiếu `220.000.000 VND`, `q08` viết "không **thể** ra quyết định khóa" thay vì
+  "không **được** ra quyết định khóa". **Đừng đổ lỗi redaction ở bất kỳ đâu khác.**
+- ✅ **README.md** số liệu — đã sửa (Python 3.13.5, 19 / 76 / 368 passed).
 
-**Trước khi ghép:**
-1. Chờ A commit `REPORT.md` (hiện đang `M`, chưa commit).
-2. Xoá mọi khối `> **Ghi chú cho A — KHÔNG đưa vào `.docx`**` trong `REPORT.md` — đó là ghi chú nội bộ, không phải nội dung báo cáo.
-3. Điền hết `[[TODO: ...]]` hoặc xoá câu đó đi. Hiện còn:
-   - §3.4 — `[[TODO: C bổ sung số ca testset có tier thật]]` → testset hiện **0 câu** có `tier`, xoá TODO và giữ nguyên câu "không claim điểm cộng +1" đã viết.
-   - §3.5 — `[[TODO: số từ make eval]]` → **không điền được**: `make eval` chỉ chạy `--dry-run`, không eval thật; và faithfulness `Unscorable` ở cả 12 câu. Thay bằng câu fallback đã viết sẵn: "chưa đo được, chuyển sang §7".
-   - §4 — `[[TODO: trace từ logs/ thật]]` → giờ có `logs/staging_20261017_201308/step_events.jsonl`, điền được (việc của B).
-   - §8 — `[[TODO: hash cuối cùng]]` → lấy sau khi mọi người commit xong.
-4. Đếm trang sau khi format, phải nằm trong **8–9 trang**.
+### Còn là hạn chế đã biết (ghi trong report, không sửa)
 
----
-
-## F6 🟠 `faithfulness` không chấm được câu nào — cần nói rõ trong §6
-
-`eval/reports/evaluation.csv`: `faithfulness = Unscorable` ở **12/12 câu**. Đây không phải bug chặn nộp, nhưng **§6 bắt buộc phải nêu** vì [CLAUDE.md](CLAUDE.md) §7 mục 6 yêu cầu *"kết quả (kèm chi phí token từng câu), ≥1 ca thất bại + phân tích"*.
-
-C có sẵn 3 thứ dùng được cho §6:
-
-| Thứ | Nguồn |
-|---|---|
-| Bảng token từng câu | `evaluation.csv` — `calls`, `prompt_tokens`, `completion_tokens`, `max_prompt` (đủ 12 dòng) |
-| Ca thất bại | `q05` (calc) và `q08` (multi_doc) — `answer_correctness = False` |
-| Tỉ lệ từ chối đúng | `refusal_correctness = True` cả 12; `refusal_subtype_correctness = True` ở q09–q12 |
-
-Phải viết đúng 1 câu giải thích vì sao faithfulness vô dụng ở đây: metric so khớp chuỗi claim với context, mà agent trả lời tổng hợp/diễn đạt lại nên không claim nào khớp nguyên văn → `Unscorable`. Đây là **hạn chế của metric**, không phải hệ thống đúng.
-
----
-
-## Thứ tự chạy còn lại
-
-```powershell
-# 1. Sửa c4_final_report.md (F2a–F2d) + eval/README.md:235 (F2e)
-# 2. Chạy lại suite để lấy số đúng cho F2c
-.venv\Scripts\python.exe -m pytest -q --ignore=tests/test_tools.py
-
-# 3. Sửa assert (F4b)
-# 4. Cold-start verify (F3)
-Remove-Item -Recurse -Force .venv
-make setup
-make test
-
-# 5. Viết §6 + §8 vào REPORT.md (F6), rồi ghép report.docx (F5e)
-
-# 6. Commit
-git add reports/verification/c4_final_report.md eval/README.md tests/test_native_tool_calling.py REPORT.md report.docx
-git commit -m "fix(report): correct C4 verification claims and add report.docx"
-```
-
----
-
-## Câu hỏi vẫn chưa được trả lời
-
-1. **"359 passed" chạy ở commit nào?** Trên HEAD `8c77866` suite ra **356 passed**. Con số 359 không tái lập được từ repo.
-2. **DB `D:\Work\AIPR\staging_c4_20261017_201308\state.db` còn tồn tại không?** Nếu còn, bằng chứng nào trong repo chứng minh được nó? Nếu không, xoá mọi dẫn chiếu tới đường dẫn đó.
-3. **Log staging chạy bằng provider nào?** Không ghi ở đâu trong `logs/`. §6 cần biết để mô tả đúng (Groq / DeepSeek / custom).
-
----
-
-## F7 🟠 Redaction che cả `expected` — làm yếu bằng chứng log
-
-Đã tự kiểm tra: `[REDACTED]` trong `evaluation.jsonl` là do [eval/redaction.py:27-31](eval/redaction.py#L27-L31) đưa `amount` vào `_IDENTIFIER_KEYS`. Hệ quả — cả **đáp án kỳ vọng** cũng bị che:
-
-```json
-"expected": {"criteria_type": "contains_all", "values": ["[REDACTED] VND", "[REDACTED] VND"]}
-```
-
-`answer_correctness` vẫn đúng vì metric chạy **trước** redaction, nhưng người đọc log (GV) **không kiểm chứng được** câu trả lời có đúng hay không. Đây là đánh đổi hợp lý về bảo mật nhưng phải nói rõ.
-
-**Không cần sửa code.** Chỉ cần **1 câu trong §6**: log đã qua redaction ở `eval/redaction.py`, số tiền/tài khoản/tx_id bị che; số liệu chấm điểm trong `evaluation.csv` tính trên dữ liệu **chưa** redaction nên vẫn đúng.
+- **`faithfulness` = `Unscorable` 12/12** — adapter chưa sinh trường `claims`; đã giải thích đúng ở `REPORT.md` §6.2. **Giữ nguyên, đây là điểm trung thực.**
+- **`context_precision` chỉ chấm được 1–2/12** — `metrics.py:73` trả `None` khi một context chứa nhiều mã `DOCnnnn`. Đã ghi ở §3.5 và §6.2.
+- **`expected_refusal_type` thiếu trong `tests/testset.jsonl`** — loại (i)/(ii) chỉ suy ra lúc chấm gate. Không bắt buộc.
+- **`reports/verification/c4_final_report.md` còn số cũ** (`359 passed, 1 skipped`, `CPython 3.14.7`). File này là
+  báo cáo nội bộ, không phải deliverable — nhưng nếu GV đọc thì nên sửa hoặc ghi rõ "snapshot 2026-10-17".

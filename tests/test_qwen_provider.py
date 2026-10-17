@@ -34,6 +34,13 @@ from trfc.agent.llm import (
 def _reset_llm_client(monkeypatch):
     import trfc.agent.llm as llm_mod
     monkeypatch.setattr(llm_mod, "load_dotenv", lambda *args, **kwargs: None)
+    # embed.py calls load_dotenv() at import, so a developer's .env is already in
+    # os.environ. Clear provider vars or these tests inherit that machine's config.
+    for name in (
+        "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
+        "GROQ_API_KEY", "DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
     llm_mod.client = None
     yield
     llm_mod.client = None

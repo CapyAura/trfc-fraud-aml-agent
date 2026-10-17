@@ -29,19 +29,50 @@
 
 ## §1 — Vấn đề, phạm vi, giả định · 0.5–1 trang · **A**
 
-**Phải có**
+### 1.1 Bài toán
 
-1. **Bài toán** (3–4 câu): chuyên viên Risk & Compliance phải tra quy định + đối chiếu hạn mức + khoá tài khoản nghi vấn; hiện làm thủ công, không truy được nguồn, không có log quyết định.
-2. **Người dùng**: chuyên viên Risk/Compliance (không phải khách hàng cuối).
-3. **Hệ thống LÀM gì**: tra cứu có trích dẫn `doc_id` + `version` → tính/so sánh → gọi tool ghi (freeze/flag) → đọc lại verify.
-4. **Hệ thống KHÔNG làm gì** (bắt buộc theo yêu cầu §1 — "và hệ thống **KHÔNG làm gì**"):
-   - Không phải hệ thống phát hiện gian lận thời gian thực; không có streaming.
-   - Không kết nối core banking thật — dữ liệu giao dịch là SQLite mô phỏng (`data/state.db`).
-   - Không tự động khoá tài khoản không có người duyệt trong production; mọi write đều qua guard cô lập DB.
-   - Không tư vấn pháp lý; không thay thế quyết định của con người.
-5. **Giả định** (3 gạch đầu dòng): corpus 9 tài liệu là bản hiện hành trừ DOC0003 (bản cũ đã bị thay thế); `tier` eKYC lấy từ hồ sơ tài khoản; một tài khoản chỉ thuộc một tầng.
+Chuyên viên Risk & Compliance phải trả lời liên tục hai câu: *giao dịch này có vi phạm quy định
+không*, và *nếu có thì làm gì ngay*. Hiện làm thủ công: mở file quy định, đối chiếu hạn mức theo
+tầng eKYC, cộng dồn giá trị trong ngày, rồi quyết định khoá tài khoản hay đánh dấu giao dịch. Ba
+điểm yếu: (1) không truy được câu trả lời về **đúng điều khoản và đúng phiên bản**; (2) cộng dồn
+theo ngày dễ sai, không lặp lại được; (3) quyết định không để lại dấu vết nên không kiểm toán được.
 
-**Lấy từ**: `DE_TAI_TRFC_Agent.md` §1–§2 · `data/docs/DOC0003.md` (bản 2025.2 đã bị thay thế).
+TRFC Agent biến quy trình đó thành vòng lặp có bằng chứng: **tra cứu → tính/so sánh → hành động →
+tự kiểm chứng**. Mọi kết luận truy được về `doc_id`, mọi hành động có bước đọc lại chứng minh.
+Người dùng là **chuyên viên Risk & Compliance nội bộ** đã biết nghiệp vụ, cần công cụ tăng tốc và
+tạo dấu vết — **không phải** khách hàng cuối hay chatbot tư vấn chung.
+
+### 1.2 Hệ thống làm gì
+
+1. **Tra cứu có trích dẫn** — `[Source: <doc_id>, chunk <n>]`; `Chunk` mang `version` và `tier`
+   nên phân biệt được DOC0003 (2025.2) với DOC0007 (2026.1).
+2. **Biến đổi** — cộng dồn giao dịch trong ngày, tính % vượt hạn mức theo tầng, đối chiếu quy tắc
+   bất khả thi địa lý, phát hiện mâu thuẫn giữa hai phiên bản tài liệu.
+3. **Hành động + verify** — gọi tool ghi (`freeze_account_temporarily`, `flag_suspicious_tx`) rồi
+   **bắt buộc** đọc lại bằng `get_account_risk_status` để chứng minh trạng thái đã đổi.
+4. **Từ chối có phân loại** — (i) ngoài phạm vi tài liệu; (ii) có quy định nhưng thiếu dữ liệu để
+   suy luận.
+
+### 1.3 Hệ thống KHÔNG làm gì
+
+- **Không chạy thời gian thực, không nối core banking thật.** Không streaming hay job nền; mỗi câu
+  hỏi là một lượt chạy độc lập do người dùng khởi phát, dữ liệu giao dịch là SQLite mô phỏng
+  (`data/state.db`).
+- **Không tự động khoá tài khoản trong production.** Tool ghi chỉ chạy khi
+  `TRFC_REQUIRE_ISOLATED_DB=1` và `TRFC_STATE_DB` trỏ ra ngoài repo; DB production đối soát SHA256
+  trước/sau mỗi lần chạy.
+- **Không phong toả vĩnh viễn, không ra quyết định pháp lý, không thay người ký duyệt** — hành
+  động tối đa là *khoá tạm thời* và *đánh dấu giao dịch*. Câu hỏi ngoài 9 tài liệu phải bị từ chối.
+
+### 1.4 Giả định
+
+- 9 tài liệu trong `data/docs/` là bản hiện hành, trừ DOC0003 (2025.2) đã bị DOC0007 (2026.1) thay
+  thế. Hệ thống **không** tự loại DOC0003 khỏi index — để tầng suy luận chọn bản mới hơn theo
+  `version`/`date` (hệ quả xem §7.1).
+- `tier` eKYC lấy từ `accounts.ekyc_tier`, không suy ra từ lịch sử giao dịch; một tài khoản thuộc
+  đúng một tầng tại một thời điểm. Câu hỏi là tiếng Việt hoặc tiếng Anh.
+
+**Lấy từ**: `DE_TAI_TRFC_Agent.md` §1–§2 · `data/docs/DOC0003.md` · `src/trfc/tools/state.py`.
 
 ---
 
@@ -85,27 +116,111 @@
 
 ## §3 — Thiết kế RAG · 1.5 trang · **A**
 
-**Phải có**
+### 3.1 Corpus
 
-1. **Corpus** — bảng 9 dòng: `doc_id` · tiêu đề · `version` · `owner`. Ghi rõ 16.920 token (tiktoken cl100k_base), vượt mốc 10.000 của syllabus.
-2. **Chunking + lý do (3–5 dòng bắt buộc)** — copy từ `DE_TAI_TRFC_Agent.md:59-66`, rút còn 4 ý:
-   - cắt theo Chương → Điều → Khoản vì văn bản quy định có cấu trúc phân cấp sẵn;
-   - `chunk_size=400` đủ 1 Điều trung bình, giữ 3–5 chunk trong context;
-   - `overlap=50` chỉ bắc cầu đoạn dài qua ranh giới Điều;
-   - **bảng markdown atomic** — không cắt vỡ bảng hạn mức (rủi ro gán sai tầng eKYC).
-   - 3 tham số nằm trong `config.toml`, không hard-code.
-3. **Embedding + vector store**: backend nào (hashing offline hay API), chiều vector, similarity = cosine, top-K kèm `score`.
-4. **Dense vs Hybrid**: công thức fuse `0.3*BM25_norm + 0.7*cosine`; giải thích **vì sao hybrid** (truy vấn có mã/từ chính xác như "eKYC", "DOC0007" thì BM25 thắng; câu diễn đạt tự nhiên thì dense thắng).
-5. **Metadata filter `tier`** — đoạn quan trọng nhất, GV sẽ hỏi:
-   - Vì sao không lọc được ở mức chunk: một chunk chứa **cả 3 tầng** trong bảng atomic.
-   - Cách làm: mỗi dòng `| Tầng N | ...` sinh một **view** cùng `doc_id`/`chunk_index`, chỉ giữ dòng tầng N (`store._tier_views`).
-   - Pre-filter **trước** rank → chunk sai tầng không bao giờ chiếm slot top-K.
-   - ⚠️ `[[TODO: C bổ sung số ca testset có tier thật]]` — hiện testset **chưa có** câu nào truyền `tier`; nếu không thêm thì **không được claim điểm cộng +1**, chỉ mô tả như năng lực của tool.
-6. **Bảng so sánh dense vs hybrid** (nếu C chạy được) `[[TODO: số từ make eval]]`; nếu không có, ghi rõ "chưa đo, xem §7".
+9 tài liệu tự soạn trong `data/docs/`, frontmatter `doc_id` / `title` / `version` / `date` /
+`owner`. **Tổng 16.293 token** (`tiktoken`, `cl100k_base`) — vượt mốc 10.000 của syllabus.
 
-**Lấy từ**: `data/docs/*.md`, `src/trfc/rag/chunking.py`, `embed.py`, `store.py:53-112`, `search.py:55-76`, `config.toml`.
+| `doc_id` | Tiêu đề | `version` | `date` | `owner` |
+|---|---|---|---|---|
+| DOC0003 | Hạn mức giao dịch theo tầng eKYC (**bản cũ, đã bị thay thế**) | 2025.2 | 2025-08-01 | Risk |
+| DOC0004 | Quy tắc phát hiện giao dịch bất thường | 2026.1 | 2026-01-10 | Risk |
+| DOC0007 | Hạn mức giao dịch theo tầng eKYC | 2026.1 | 2026-01-15 | Risk |
+| DOC0008 | Quy trình xử lý và khoá tài khoản rủi ro | 2026.1 | 2026-01-20 | Compliance |
+| DOC0009 | Danh mục phương thức thanh toán trong phạm vi kiểm soát | 2026.1 | 2026-02-01 | Risk |
 
-**Câu GV chắc chắn hỏi** (chuẩn bị trước): `chunk_size=400` chọn thế nào? Thử 200 thì hỏng ở đâu? · Filter trước hay sau rank, vì sao? · Chỉ dòng code giữ bảng atomic.
+Bốn tài liệu còn lại (DOC0001, 0002, 0005, 0006) cùng khuôn metadata, `owner` là Risk hoặc
+Operations.
+
+### 3.2 Chunking — và lý do
+
+**Structural**: cắt theo Chương → Điều → Khoản; `chunk_size=400`, `overlap=50` đọc từ
+`config.toml` (`chunking.py:142-144`). Kết quả **61 chunk gốc** (trung bình 305 token, trung vị
+320, lớn nhất 421) + 6 view tầng (§3.4) = 67 vector.
+
+1. **Cấu trúc phân cấp sẵn** — cắt theo `Điều`/`Khoản` giữ nguyên đơn vị ngữ nghĩa; fixed-size cắt
+   giữa câu và làm mất chủ thể điều khoản.
+2. **Bảng hạn mức phải nguyên khối** — bảng cắt vỡ có thể giữ "hạn mức 500 triệu/ngày" mà mất dòng
+   "áp dụng cho tầng eKYC 2": số đúng nhưng gán sai tầng, **lỗi im lặng** không crash.
+   `chunking.py:169` giữ khối atomic kể cả khi vượt `chunk_size` (chunk bảng DOC0007 = 421 token —
+   cố ý).
+3. **`overlap=50`** bắc cầu đoạn văn dài qua ranh giới Điều; carry theo *segment* trọn vẹn nên
+   bảng atomic không bị hỏng. **`chunk_size=400`** đủ chứa 1 Điều trung bình, giữ 3–5 chunk trong
+   context.
+
+Mỗi chunk mang **heading path prefix** (`"Điều 5 > Khoản 2"`) để đứng một mình vẫn có ngữ cảnh vị
+trí; **dòng giới thiệu ngay trên bảng gộp vào khối bảng** (`chunking.py:75-79`).
+
+### 3.3 Embedding và hai chế độ truy vấn
+
+- **Backend**: `OPENAI_API_KEY` → `text-embedding-3-small`; `JINA_API_KEY` → `jina-embeddings-v3`;
+  không có key → **offline hashing** (`embed.py:124`, md5 token vào 1024 chiều, L2-normalize).
+  Backend chốt một lần cho cả run (`_probe()`); probe lỗi thì hạ xuống offline kèm cảnh báo stderr
+  thay vì chết giữa demo.
+- **Ngưỡng và hợp đồng trả về**: cosine, `MIN_SCORE=0.45` (API) / `MIN_SCORE_OFFLINE=0.10`
+  (hashing) — hai backend hai thang điểm. Top-K = 5; không đạt ngưỡng trả `[]`, **không bao giờ**
+  `None`, để agent phân biệt "không tìm thấy" với "lỗi tool".
+- **Hai chế độ** (`retrieval.mode`, mặc định `hybrid`): `dense` xếp theo `cosine`; `hybrid` theo
+  `0.3 × BM25_norm + 0.7 × cosine`. Truy vấn chứa **mã định danh** ("DOC0007", "PM03") thì BM25
+  thắng vì embedding làm mờ token hiếm; câu **diễn đạt tự nhiên** thì dense thắng vì không trùng
+  mặt chữ. Trọng số nghiêng dense nhưng vẫn giữ BM25 để bắt mã tài liệu.
+- **Ngưỡng chỉ áp lên cosine**, không áp lên điểm fuse (`search.py:61-65`): fuse là thang **tương
+  đối** phụ thuộc phân bố BM25 từng truy vấn — ngưỡng để **chặn**, fuse để **xếp hạng**.
+
+### 3.4 Metadata filter `tier`
+
+`tier` là metadata **mức dòng**, đơn vị index là **chunk**, mà chunk bảng DOC0007 chứa cả 3 tầng —
+gắn `tier` lên chunk thì không giá trị nào đúng, còn lọc sau rank thì `tier=2` vẫn trả nguyên bảng
+kèm hạn mức tầng 1 và 3.
+
+**Cách giải — "view một tầng".** Mỗi dòng `| Tầng N | ... |` sinh một view (`store.py:53`): cùng
+`doc_id`/`chunk_index`, text chỉ giữ dòng tiêu đề bảng và dòng tầng N. View được embed và đánh BM25
+cùng lúc với chunk gốc (`store.py:83`) nên hai chế độ dùng chung thứ tự index. DOC0003 + DOC0007 →
+6 view, mỗi tầng đúng **2 ứng viên**.
+
+Ghi chú: `tier` không có trong frontmatter doc nào — nó là metadata **sinh ra lúc index**.
+
+**Pre-filter, không phải post-filter** (`search.py:55`): `store.rank_candidates(tier)` trả index
+của toàn bộ chunk gốc khi `tier=None`, hoặc chỉ view tầng N khi có `tier`; `dense_scores` chỉ tính
+trên tập đó. Chunk sai tầng **không bao giờ** vào top-K kể cả khi khớp từ khoá tốt hơn, trong khi
+post-filter để chunk sai tầng chiếm slot top-5 và đẩy chunk đúng ra ngoài.
+
+**Giới hạn, nói thẳng:** testset hiện có **0 câu** truyền `tier` (`grep -c '"tier"'
+tests/testset.jsonl` → `0`). `tier` là **năng lực có thật của tool** nhưng **chưa có bằng chứng
+eval**, nên báo cáo **không claim điểm cộng +1 metadata filter**.
+
+### 3.5 Dense vs hybrid — số đo
+
+Đo bằng cách gọi thẳng `search_policy(question, k, mode=...)` trên 12 câu của `tests/testset.jsonl`
+và so với trường `must_cite` của từng câu. Không đi qua LLM — đây là **số của tầng truy vấn**, không
+phải số của toàn pipeline.
+
+| Cấu hình | recall@1 | recall@3 | recall@5 | context precision |
+|---|---|---|---|---|
+| `mode="dense"` | 11/12 | 11/12 | 11/12 | 0.40 (chấm được 2/12 câu) |
+| `mode="hybrid"` (`0.3*BM25 + 0.7*cosine`) | 10/12 | 12/12 | 12/12 | 0.80 (chấm được 1/12 câu) |
+
+Đọc bảng này cho đúng:
+
+- **Hybrid thắng ở recall@3 và @5** (12/12 so với 11/12): câu duy nhất dense trượt là `q09` — gold
+  `DOC0009`, dense trả `DOC0007` bốn lần rồi `DOC0003`, tức là BM25 kéo đúng tài liệu vào top-3.
+  Ở top-1 thì ngược lại, hybrid trượt `q01` (gold `DOC0007`, trả `DOC0003`) và `q09`, dense chỉ trượt
+  `q09` — nên **không kết luận được hybrid tốt hơn ở top-1** với 12 câu.
+- **`context precision` chỉ chấm được 1–2/12 câu**, nên 0.40 và 0.80 là trung bình của 2 và 1 điểm dữ
+  liệu — **không đủ để so sánh hai cấu hình**. Lý do: `eval/metrics.py:73` trả `None` (không chấm) khi
+  một context chứa nhiều hơn một mã `DOCnnnn`; phần lớn chunk trích dẫn chéo tài liệu khác nên bị loại.
+- **`faithfulness` = `Unscorable` cho cả hai cấu hình** — nó cần câu trả lời của LLM và trường `claims`,
+  mà phép đo này không gọi LLM (§6.2).
+- **Cả hai cấu hình chạy trên backend embedding `offline-hashing`** (md5 theo token, 1024 chiều), vì
+  lần đo không có API key trong môi trường. Đây **không phải** số của lần chạy staging
+  `staging_20261017_201308`. Log staging **không ghi** backend embedding nào đã dùng, nên không đối
+  chiếu được hai lần chạy; muốn số của cấu hình API thật thì phải chạy lại với key.
+
+**Lấy từ**: `data/docs/*.md`, `src/trfc/rag/chunking.py:75-79,169`, `embed.py:25-34,124`,
+`store.py:53,83,108`, `search.py:55-76`, `config.toml`.
+
+> **Ghi chú cho A — KHÔNG đưa vào `.docx`**: câu GV chắc chắn hỏi là `chunk_size=400` chọn thế
+> nào, thử 200 thì hỏng ở đâu; filter trước hay sau rank, vì sao; chỉ dòng code giữ bảng atomic.
 
 ---
 
@@ -150,47 +265,146 @@
 
 ## §6 — Đánh giá · 1.5 trang · **C**
 
-**Phải có**
+### 6.1 Testset
 
-1. **Testset** — bảng phân bố 12 câu: `retrieval` 3 · `calc` 2 · `contradiction` 2 · `multi_doc` 1 · `no_answer` 4 (loại i = 2, loại ii = 2). Nêu **vì sao phải đo cặp** faithfulness + tỉ lệ từ chối đúng (nếu chỉ đo faithfulness, hệ thống luôn từ chối sẽ được điểm cao giả).
-2. **Cách đo**: faithfulness (claim có được context hỗ trợ), context precision (theo `doc_id` gold), refusal correctness **tách i/ii**. Ghi rõ là so khớp chuỗi xác định, không phải LLM-judge — và hệ quả (rẻ, tái lập được, nhưng bỏ sót paraphrase).
-3. **Kết quả**: bảng từng câu (id · category · faithfulness · context precision · refusal đúng · calls · prompt_tokens · completion_tokens · max_prompt). `[[TODO: chỉ điền từ logs/ thật]]`.
-4. **Chi phí token từng câu** + tổng cả testset (bắt buộc theo §6).
-5. **≥1 ca thất bại + phân tích** — chọn câu điểm thấp nhất, nêu nguyên nhân (retrieval sai / reasoning sai / thiếu dữ liệu) và đề xuất sửa.
-6. **Trạng thái bằng chứng**: nếu `logs/` chưa có, **ghi rõ "chưa có lần chạy thật"**, không điền số. Xem `FIX_C.md` F1–F2.
+12 câu trong `tests/testset.jsonl`, chia theo đúng ba tầng của đề bài:
 
-**Lấy từ**: `tests/testset.jsonl`, `eval/metrics.py`, `eval/run_eval.py`, `eval/report.py`, `logs/staging_*/`.
+| `category` | Số câu | ID | Đo cái gì |
+|---|:---:|---|---|
+| `retrieval` | 3 | q01–q03 | Trích đúng `doc_id` + đúng phiên bản |
+| `calc` | 2 | q04, q05 | Cộng dồn giao dịch, tính % vượt hạn mức |
+| `contradiction` | 2 | q06, q07 | Chọn bản policy còn hiệu lực giữa DOC0003/DOC0007 |
+| `multi_doc` | 1 | q08 | Phải trích ≥2 tài liệu mới trả lời được |
+| `no_answer` loại (i) | 2 | q09, q10 | Ngoài phạm vi 9 tài liệu → lỗi ở khâu **truy vấn** |
+| `no_answer` loại (ii) | 2 | q11, q12 | Có quy định nhưng thiếu dữ liệu → lỗi ở khâu **suy luận** |
+
+Hai loại `no_answer` tách riêng vì cách sửa khác nhau. Chúng cũng là **đối trọng của `faithfulness`**:
+hệ thống luôn từ chối có faithfulness hoàn hảo mà vô dụng, hệ thống luôn bịa có tỉ lệ từ chối đúng
+cao giả — chỉ khi hai metric ràng buộc nhau thì con số mới có nghĩa.
+
+### 6.2 Cách đo
+
+Toàn bộ là **so khớp chuỗi xác định** (`eval/metrics.py`), không LLM-as-a-judge:
+`answer_correctness` kiểm tra `expected.values` xuất hiện nguyên văn trong câu trả lời
+(`_contains_literal`); `context_precision` đếm tỉ lệ `doc_id` gold có trong context truy hồi;
+`refusal_decision_correctness` + `refusal_subtype_correctness` kiểm tra quyết định từ chối và đúng
+loại (i)/(ii). Đánh đổi: rẻ, 0 token, tái lập 100%, nhưng **bỏ sót câu đúng diễn đạt khác** (ca `q08`).
+
+**`faithfulness` không chấm được câu nào.** Cột này `Unscorable` ở **cả 12/12 câu**: metric chỉ chấm
+khi câu trả lời kèm danh sách `claims` tách rời, mà adapter chưa bao giờ sinh trường đó
+(`loop.py:47`, `policy.py:39` đều để `None`) nên `faithfulness()` trả `None` ngay ở guard đầu vào.
+Đây là **hạn chế của metric/plumbing, không phải hệ thống đúng**.
+
+**Redaction:** log đã qua `eval/redaction.py` nên số tiền/tài khoản/`tx_id` — kể cả trong `expected` —
+hiện thành `[REDACTED]`. Điểm trong `evaluation.csv` tính **trước** redaction (`run_eval.py:285-288`
+so với `:314`) nên vẫn đúng, nhưng người đọc log không kiểm chứng lại được bằng mắt.
+
+### 6.3 Kết quả — lần chạy thật `logs/staging_20261017_201308/`
+
+| ID | `category` | Đúng | Faith. | Ctx prec. | Từ chối đúng | Calls | Prompt | Compl. |
+|---|---|:---:|:---:|:---:|:---:|:---:|---:|---:|
+| q01 | retrieval | ✅ | Unscorable | 0.60 | ✅ | 2 | 7.627 | 448 |
+| q02 | retrieval | ✅ | Unscorable | 0.75 | ✅ | 3 | 16.904 | 896 |
+| q03 | retrieval | ✅ | Unscorable | Unscorable | ✅ | 3 | 13.188 | 568 |
+| q04 | calc | ✅ | Unscorable | Unscorable | ✅ | 4 | 16.671 | 897 |
+| q05 | calc | ❌ | Unscorable | Unscorable | ✅ | 5 | 23.557 | 982 |
+| q06 | contradiction | ✅ | Unscorable | Unscorable | ✅ | 5 | 22.637 | 987 |
+| q07 | contradiction | ✅ | Unscorable | Unscorable | ✅ | 3 | 17.086 | 875 |
+| q08 | multi_doc | ❌ | Unscorable | Unscorable | ✅ | 3 | 15.960 | 842 |
+| q09 | no_answer (i) | — | Unscorable | Unscorable | ✅ (i) | 3 | 15.364 | 854 |
+| q10 | no_answer (i) | — | Unscorable | Unscorable | ✅ (i) | 3 | 15.232 | 817 |
+| q11 | no_answer (ii) | — | Unscorable | Unscorable | ✅ (ii) | 3 | 16.760 | 890 |
+| q12 | no_answer (ii) | — | Unscorable | 0.40 | ✅ (ii) | 3 | 11.702 | 591 |
+| **Tổng** | | **6/8** | 0/12 chấm được | **0,58** (3 câu) | **12/12** | **40** | **192.688** | **9.647** |
+
+- **Trả lời đúng 6/8** (75%); hai ca sai là `q05`, `q08` — phân tích ở §6.5.
+- **Từ chối đúng 12/12**, trong đó 4/4 `no_answer` đúng cả **loại** (2 loại i, 2 loại ii).
+- **Context precision** chỉ 3 câu chấm được → trung bình **0,58**; phần còn lại `Unscorable` vì câu
+  trả lời không kèm danh sách `doc_id` truy hồi tách rời.
+- **Semantic gate** `overall: PASS`: `freeze_write_success` + `freeze_verify_success` (q05),
+  `flag_write_success` + `flag_verify_success` (q06), `false_refusal_cases`/`false_answer_cases` rỗng.
+
+### 6.4 Chi phí token
+
+**192.688 prompt + 9.647 completion = 202.335 token** cho **40 lượt gọi** — trung bình **16.057
+prompt / 803 completion** mỗi câu. Prompt dài nhất một lượt là **`q07` = 7.188 token** (phải nạp
+đồng thời DOC0003 và DOC0007 để xử lý mâu thuẫn hiệu lực); tốn nhất cả câu là **`q05` = 24.539
+token** (5 bước ReAct: tính hạn mức → `freeze_account_temporarily` → `get_account_risk_status`).
+Mô hình: `llm.py:24` mặc định `qwen/qwen3.8-27b` qua endpoint tương thích OpenAI — **log staging
+không ghi provider/model thực tế**, nên đây là cấu hình trong code, không phải bằng chứng.
+
+### 6.5 Ca thất bại
+
+**`q05` (calc) — không nêu con số tuyệt đối.** Gold cần `"44%"` **và** `"220.000.000 VND"`; agent
+tính đúng công thức DOC0007 Điều 10 và ra đúng `44%`, nhưng chỉ in `[REDACTED] − [REDACTED]) ÷
+[REDACTED] × 100% = 44%`, không nhắc lại tổng giá trị giao dịch. Nguyên nhân là **thiếu ràng buộc
+định dạng trong prompt**, không phải tính sai. Sửa: buộc prompt nêu lại từng toán hạng, hoặc ghi rõ
+trong testset là chỉ chấm kết quả cuối.
+
+**`q08` (multi_doc) — lệch một từ.** Gold cần `"không được ra quyết định khóa"`; agent viết *"không
+**thể** ra quyết định khóa tài khoản"*. Về nghiệp vụ câu trả lời đúng (nêu rõ "Không", dẫn DOC0006
+chunk 4 và DOC0008 chunk 1), nhưng `_contains_literal` so khớp nguyên văn nên trả `False` — **hạn
+chế của metric, không phải lỗi suy luận**. Sửa: thêm `synonyms` trong `testset.jsonl`, hoặc chấm
+tương đương ngữ nghĩa bằng NLI offline.
+
+**Lấy từ**: `tests/testset.jsonl`, `eval/metrics.py`, `eval/run_eval.py`, `eval/report.py`,
+`logs/staging_20261017_201308/`.
 
 ---
 
 ## §7 — Hạn chế & hướng phát triển · 0.5 trang · **A**
 
-**Phải có ≥2 hạn chế TRUNG THỰC** — không viết "chưa có thời gian". Gợi ý (chọn 3):
+### 7.1 Hạn chế
 
-1. **Embedding offline bằng hashing** — không nắm ngữ nghĩa tiếng Việt; chuyển sang `sentence-transformers` hoặc API embedding sẽ cải thiện recall.
-2. **Faithfulness đo bằng so khớp chuỗi** — bỏ sót câu diễn đạt lại; RAGAS/LLM-judge chính xác hơn nhưng đắt và khó tái lập.
-3. **Corpus chỉ 9 tài liệu, 1 domain** — chưa kiểm chứng khi corpus lớn (hàng trăm doc) hoặc có nhiều version chồng lấn.
-4. **Metadata filter `tier` chưa dùng trong testset** — năng lực có nhưng chưa có bằng chứng eval.
-5. **Chưa có live verification đầy đủ** với provider/MCP trong môi trường production.
+**1. Embedding offline bằng hashing không nắm ngữ nghĩa tiếng Việt.** Không có key API thì băm
+token thành 1024 chiều (`embed.py:124`) — chỉ bắt **trùng mặt chữ**, không bắt paraphrase. Đó là lý
+do phải hạ ngưỡng xuống `MIN_SCORE_OFFLINE=0.10` (so với 0.45 khi có API), và hạ ngưỡng nghĩa là
+tăng nguy cơ trả chunk không liên quan.
 
-**Hướng phát triển**: 1 đoạn ngắn — rerank, streaming, human-in-the-loop cho write tool, audit trail bất biến.
+**2. Faithfulness đo bằng so khớp chuỗi.** `eval/metrics.py` kiểm tra claim có xuất hiện nguyên văn
+trong context: rẻ và tái lập được, nhưng câu đúng mà diễn đạt khác bị chấm sai, còn câu chép nguyên
+văn mà **hiểu sai** vẫn điểm cao. Faithfulness ≈ 1.0 không đồng nghĩa trả lời đúng.
+
+**3. Trích dẫn phiên bản là trường dữ liệu, không phải ràng buộc của prompt.** `Chunk` mang
+`version` nhưng **không prompt nào** buộc mô hình nêu version hay chọn bản mới hơn. DOC0003
+(2025.2) vẫn nằm trong index và vẫn có thể lọt top-K: câu trả lời trích nó vẫn "có nguồn" nhưng có
+thể sai hiệu lực.
+
+**4. Corpus nhỏ và đơn miền.** 9 tài liệu, 16.293 token — chưa kiểm chứng hành vi khi corpus lên
+hàng trăm tài liệu hoặc heading không theo khuôn Chương/Điều/Khoản (chunker structural sẽ thoái
+hoá về cắt theo đoạn). Metadata filter `tier` cũng **chưa có câu testset nào** chạy qua (§3.4).
+
+### 7.2 Hướng phát triển
+
+1. **Rerank sau retrieval** — top-20 bằng hybrid rồi rerank bằng cross-encoder; giải quyết (1) mà
+   không phải đổi embedding backend.
+2. **Lọc theo `date`/`version` ở mức index** — coi "bản còn hiệu lực" là metadata giống `tier`, để
+   tài liệu bị thay thế không bao giờ vào top-K.
+3. **Human-in-the-loop cho tool ghi** — tách `freeze_account_temporarily` thành đề xuất + phê duyệt;
+   verify giữ nguyên, thêm bước người duyệt trước khi ghi.
+4. **Audit trail bất biến** — hiện `flags`/`accounts` ghi đè trạng thái; cần bảng append-only ghi
+   mọi lần write kèm `actor`, `reason`, `evidence_doc_ids`.
+
+**Lấy từ**: `src/trfc/rag/embed.py:33-34,124`, `eval/metrics.py`, `prompts/system.txt`,
+`data/docs/DOC0003.md`, `tests/testset.jsonl`.
 
 ---
 
 ## §8 — Phân công & đóng góp · 0.5 trang · **C**
 
-**Phải có bảng** (GV đối chiếu khi vấn đáp):
+| Thành viên | Vai trò | File phụ trách chính | Commit tiêu biểu |
+|---|---|---|---|
+| **A** (CapyCoder) | Dữ liệu & Truy hồi | `data/docs/*.md` (9 văn bản), `src/trfc/rag/chunking.py`, `embed.py`, `store.py`, `search.py`, metadata filter `tier` | `d814a37` corpus · `6c28772` chunking · `d0210b2` embedding + hybrid search |
+| **B** (Do Ngo, Do Coding) | Agent & Tool / MCP | `src/trfc/tools/schemas.py`, `impl.py`, `state.py`, `src/trfc/agent/loop.py`, `parse.py`, `llm.py`, `prompts/*.txt`, `src/trfc/mcp_server/server.py` | `6ccbdf1` `aae71ca` (loop) · `d12f5cc` decision prompt · `8612d50` MCP server · `41e2c13` tool tests |
+| **C** (Penguin-cell34) | Đo lường & Tái lập | `tests/testset.jsonl`, `eval/metrics.py`, `run_eval.py`, `report.py`, `semantic_gate.py`, `redaction.py`, `src/trfc/mcp_server/client2.py`, `scripts/run_c4_staging.ps1`, `Makefile` | `8c77866` staging + charts · `86b144e` semantic gate · `2a6cffb` LLM client fix |
 
-| Thành viên | Vai trò | File phụ trách | Commit hash | Điểm |
-|---|---|---|---|---|
+**Đối soát tài khoản Git** (tính đến `f10de6a`): tổng **68 commit** — Do Ngo 38 · CapyCoder 12 ·
+Penguin-cell34 11 · Do Coding 7. `Do Ngo` và `Do Coding` là hai tài khoản của cùng **thành viên B**
+(đề bài cho phép 3 SV/nhóm, git phải thể hiện cả 3 người làm thật).
 
-Lấy hash bằng:
-
-```bash
-git log --author="<tên>" --format="%h %s" | head -5
-```
-
-Hiện có 4 tài khoản commit (Do Ngo 21 · CapyCoder 10 · Penguin-cell34 9 · Do Coding 7); ghi chú 2 bạn Do Ngo/Do Coding dùng chung phần B. `[[TODO: hash cuối cùng — lấy sau khi mọi người commit xong]]`.
+Bảng trên **không có cột "tỷ lệ đóng góp %"**: ba cột 100% cộng lại thành 300% là con số vô nghĩa,
+và không có cách đo khách quan nào cho một đồ án 10 ngày. Đóng góp được chứng minh bằng **commit
+hash + file phụ trách**, đúng thứ GV đối chiếu khi vấn đáp.
 
 ---
 

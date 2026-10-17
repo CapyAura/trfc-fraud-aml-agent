@@ -24,6 +24,10 @@ except ImportError:
 DEFAULT_MODEL_NAME = "qwen/qwen3.8-27b"
 MODEL_NAME = DEFAULT_MODEL_NAME
 
+# Vietnamese is token-heavy (~2.5 tokens/word), so a refusal answer with citations
+# runs 700-900 completion tokens. 650 cut answers mid-sentence.
+DEFAULT_MAX_TOKENS = 2048
+
 client = None
 
 
@@ -37,7 +41,7 @@ class LLMConfig:
     base_url: str | None
     timeout_seconds: float = 30.0
     max_retries: int = 3
-    max_tokens: int = 650
+    max_tokens: int = DEFAULT_MAX_TOKENS
 
 
 def resolve_llm_config() -> LLMConfig:
@@ -150,11 +154,11 @@ def resolve_llm_config() -> LLMConfig:
         max_retries = 3
 
     # Max tokens
-    tokens_str = os.getenv("LLM_MAX_TOKENS", "650")
+    tokens_str = os.getenv("LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))
     try:
         max_tokens = int(tokens_str)
     except ValueError:
-        max_tokens = 650
+        max_tokens = DEFAULT_MAX_TOKENS
 
     return LLMConfig(
         provider=provider,
@@ -254,7 +258,7 @@ def call_llm(
             if max_tokens_env and max_tokens_env.isdigit():
                 kwargs["max_tokens"] = int(max_tokens_env)
             else:
-                kwargs["max_tokens"] = 650
+                kwargs["max_tokens"] = DEFAULT_MAX_TOKENS
 
             if tools:
                 kwargs["tools"] = tools
@@ -285,6 +289,13 @@ def call_llm(
             message = getattr(response.choices[0], "message", None)
             if message is None:
                 raise ValueError(f"{provider_tag} returned no assistant message")
+            if getattr(response.choices[0], "finish_reason", None) == "length":
+                print(
+                    f"[LLM {provider_tag} WARN] output hit max_tokens={kwargs['max_tokens']}; "
+                    "answer is truncated. Raise LLM_MAX_TOKENS.",
+                    file=sys.stderr,
+                    flush=True,
+                )
             return message, usage_stats
 
         except (GroqError, OpenAIAPIError) as e:

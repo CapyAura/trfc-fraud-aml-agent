@@ -115,11 +115,11 @@ Server `MCPServer("TRFC Risk & AML Server")`, transport **stdio**, 5 tool trong 
 
 **Host thứ hai** (điểm cộng +1): `client2.py` do C viết, độc lập agent, chỉ dùng chung SDK MCP. Đã chạy lại ngày 17/10/2026 trên DB tạm: `client2 --tool freeze_account_temporarily` rồi `--tool get_account_risk_status` trả `frozen=true`, `checked_at` muộn hơn `frozen_at`, tức đọc lại từ DB bằng một tiến trình khác.
 
-**Mức đã xác minh.** `pytest tests/test_tools.py tests/test_native_tool_calling.py tests/test_client2.py tests/test_db_isolation.py` → 76 passed (model giả, DB tạm, nên chứng minh logic loop/tool/guard, không chứng minh hành vi LLM thật). Lần chạy staging 12 câu (`execution_mode=real`) đi qua MCP stdio. `[[TODO: ghi provider và model của lần chạy staging 20261017_201308 — log không lưu]]`. Chưa thử nhiều client ghi đồng thời vào cùng một DB.
+**Mức đã xác minh.** `pytest tests/test_tools.py tests/test_native_tool_calling.py tests/test_client2.py tests/test_db_isolation.py` → 76 passed (model giả, DB tạm, nên chứng minh logic loop/tool/guard, không chứng minh hành vi LLM thật). Lần chạy staging 12 câu (`execution_mode=real`) đi qua MCP stdio. **Provider và model của lần chạy staging `20261017_201308` không được ghi lại** — log không lưu trường này, nên không thể điền từ log. Đây là hạn chế của logging, không phải bằng chứng về model: giá trị `qwen/qwen3.8-27b` trong `llm.py:24` là default trong code, không chứng minh đó là model đã chạy thật. Chưa thử nhiều client ghi đồng thời vào cùng một DB.
 
 ## §9 — Phụ lục (phần B)
 
-1. **Prompt gốc:** `prompts/system.txt`, `prompts/decision.txt` (đang chạy trong `loop.py`); `prompts/react_step.txt` (ReAct dạng văn bản, khớp `parse.py`) và `prompts/judge.txt` (LLM-judge tuỳ chọn) là prompt tham chiếu, không có code nạp. Nguyên văn hai prompt đang chạy:
+1. **Prompt gốc:** `prompts/system.txt` và `prompts/decision.txt` là hai prompt đang chạy trong `loop.py`. `prompts/react_step.txt` là prompt của chế độ opt-in `--text-react` — được nạp thật qua `load_react_prompt()` (`loop.py:133`) và dùng ở `loop.py:531`; không bật cờ thì không nạp. `prompts/judge.txt` là prompt tham chiếu, **chưa có code nạp** (`grep -rn judge src/ eval/ tests/` → 0 hit): evaluation hiện dùng so khớp chuỗi ở `eval/metrics.py`, không dùng LLM-judge. Nguyên văn hai prompt đang chạy:
 
 ```text
 # system.txt
