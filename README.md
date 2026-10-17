@@ -28,9 +28,10 @@ make test       # pytest, target hiện không bao gồm tests/test_tools.py
 ```
 
 `make setup` dùng `uv sync --locked --extra dev`. Lệnh `make demo` gọi agent và cần
-Groq credentials/network cùng MCP runtime; tools ghi trạng thái chỉ được dùng khi
-`TRFC_REQUIRE_ISOLATED_DB=1` và một isolated `TRFC_STATE_DB` được cấu hình. Không
-xem demo là offline check.
+LLM credentials/network cùng MCP runtime. Target này **tự** đặt
+`TRFC_REQUIRE_ISOLATED_DB=1` và trỏ `TRFC_STATE_DB` vào một file DB dùng-một-lần ngoài
+repo (rồi `reset()` seed lại mỗi lần), nên `data/state.db` production không bị đụng —
+không cần cấu hình tay. Không xem demo là offline check.
 
 **Trạng thái xác minh gần nhất của working tree:** full offline pytest suite đã pass
 trên Python 3.13.5 bằng `.venv` của dự án: adapter tests **19 passed**, focused

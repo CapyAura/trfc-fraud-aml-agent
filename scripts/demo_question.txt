@@ -1,0 +1,1 @@
+Tài khoản ACC001 (eKYC tầng 2) có tổng giao dịch trong ngày là 720.000.000 VND, vượt hạn mức ngày 500.000.000 VND. Tính tỷ lệ vượt hạn mức theo DOC0007, tạm khóa tài khoản ACC001 và tra cứu xác minh trạng thái rủi ro.
