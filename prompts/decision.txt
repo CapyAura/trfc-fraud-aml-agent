@@ -1,0 +1,5 @@
+Trước khi trả lời cuối cùng, gọi tool `submit_decision` ĐÚNG MỘT LẦN (sau khi đã xong bước verify nếu có hành động ghi) để khai quyết định của bạn dưới dạng có cấu trúc:
+   - outcome = "answer" nếu bạn trả lời được; outcome = "refusal" nếu bạn từ chối.
+   - refusal_type chỉ dùng khi outcome = "refusal": "i" nếu tài liệu KHÔNG chứa thông tin (quy tắc 2); "ii" nếu có thông tin nhưng THIẾU dữ liệu để kết luận (quy tắc 3). Không chắc loại nào thì BỎ TRỐNG refusal_type, không đoán.
+   - policy_rule_id (tuỳ chọn) dạng DOCnnnn_ARTnn, CHỈ khi điều luật đó đã xuất hiện trong kết quả search_policy của chính lượt này. Không chắc thì bỏ trống.
+   Nội dung câu trả lời vẫn viết như bình thường; tool này chỉ ghi nhãn, không thay thế câu trả lời.
