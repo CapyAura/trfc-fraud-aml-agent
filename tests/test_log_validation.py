@@ -205,6 +205,43 @@ def test_malformed_json_values_are_reported_without_crashing():
     assert any("execution_mode" in error for error in validate_event(row))
 
 
+def test_claims_accept_bare_strings_and_judge_records():
+    bare = case_row()
+    bare["claims"] = ["limit"]
+    assert validate_case(bare) == []
+
+    judged = case_row()
+    judged["claims"] = [{"text": "limit", "label": "supported",
+                         "evidence_doc_id": "DOC0001"}]
+    assert validate_case(judged) == []
+
+    minimal = case_row()
+    minimal["claims"] = [{"text": "limit"}]
+    assert validate_case(minimal) == []
+
+    wrong_label = case_row()
+    wrong_label["claims"] = [{"text": "limit", "label": "maybe"}]
+    assert "claims[0].label must be supported or unsupported" in validate_case(wrong_label)
+
+    missing_text = case_row()
+    missing_text["claims"] = [{"label": "supported"}]
+    assert "claims[0].text must be a string" in validate_case(missing_text)
+
+    bad_doc = case_row()
+    bad_doc["claims"] = [{"text": "limit", "evidence_doc_id": "DOC1"}]
+    assert any("evidence_doc_id" in error for error in validate_case(bad_doc))
+
+    not_a_list = case_row()
+    not_a_list["claims"] = {"text": "limit"}
+    assert "claims must be null or a list" in validate_case(not_a_list)
+
+
+def test_contexts_must_still_be_strings():
+    row = case_row()
+    row["contexts"] = [{"doc_id": "DOC0001"}]
+    assert "contexts must be null or a list of strings" in validate_case(row)
+
+
 def test_jsonl_errors_include_line_number_and_continue(tmp_path):
     path = tmp_path / "trace.jsonl"
     path.write_text(json.dumps(event_row()) + "\nnot json\n" + json.dumps(event_row()) + "\n", encoding="utf-8")

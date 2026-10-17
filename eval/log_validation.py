@@ -22,6 +22,12 @@ CASE_REQUIRED = {
 USAGE_KEYS = {"calls", "prompt_tokens", "completion_tokens", "max_prompt"}
 EXECUTION_MODES = {"real", "mock", "dry_run", "unit_test", "synthetic"}
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z", re.ASCII)
+_DOC_ID = re.compile(r"DOC\d{4}\Z", re.ASCII)
+_JUDGE_FIELDS = (
+    "judge_faithfulness", "judge_outcome", "judge_refusal_type",
+    "judge_outcome_correct", "judge_refusal_type_correct", "judge_claims",
+    "judge_agreement", "judge_note", "judge_error",
+)
 
 
 def _timestamp(value: Any) -> bool:
@@ -32,6 +38,55 @@ def _timestamp(value: Any) -> bool:
         return parsed.tzinfo is not None and parsed.utcoffset() is not None
     except ValueError:
         return False
+
+
+def _judge_errors(row: dict[str, Any]) -> list[str]:
+    """Validate optional judge columns.
+
+    Judge fields are additive and may be absent on rows produced without
+    ``--judge``. When present they must not be mistaken for deterministic
+    metrics: a judge score is only meaningful alongside the error field that
+    says whether the judge actually ran.
+    """
+    if not any(field in row for field in _JUDGE_FIELDS):
+        return []
+    errors = []
+    score = row.get("judge_faithfulness")
+    if score is not None:
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 1:
+            errors.append("judge_faithfulness must be null or a number between 0 and 1")
+    outcome = row.get("judge_outcome")
+    if outcome is not None and outcome not in {"answer", "refusal"}:
+        errors.append("judge_outcome must be answer, refusal, or null")
+    refusal_type = row.get("judge_refusal_type")
+    if refusal_type is not None and refusal_type not in {"i", "ii"}:
+        errors.append("judge_refusal_type must be i, ii, or null")
+    if outcome == "answer" and refusal_type is not None:
+        errors.append("judge_refusal_type must be null when judge_outcome is answer")
+    for field in ("judge_outcome_correct", "judge_refusal_type_correct"):
+        value = row.get(field)
+        if value is not None and not isinstance(value, bool):
+            errors.append(f"{field} must be a boolean or null")
+    claims = row.get("judge_claims")
+    if claims is not None:
+        if not isinstance(claims, list):
+            errors.append("judge_claims must be null or a list")
+        else:
+            for index, item in enumerate(claims):
+                if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                    errors.append(f"judge_claims[{index}] must be an object with a text field")
+                    continue
+                if item.get("label") not in {"supported", "unsupported"}:
+                    errors.append(f"judge_claims[{index}].label must be supported or unsupported")
+    agreement = row.get("judge_agreement")
+    if agreement is not None and agreement not in {"agree", "judge_higher", "judge_lower"}:
+        errors.append("judge_agreement must be agree, judge_higher, judge_lower, or null")
+    error = row.get("judge_error")
+    if error is not None and not isinstance(error, str):
+        errors.append("judge_error must be a string or null")
+    if error is None and outcome is None and score is None and claims is None:
+        errors.append("judge columns present but no judge result or judge_error recorded")
+    return errors
 
 
 def _valid_usage(value: Any, nullable: bool = False) -> bool:
@@ -141,11 +196,50 @@ def validate_case(row: dict[str, Any]) -> list[str]:
             errors.append("decided policy status needs a structured decision_source")
     for field in ("contexts", "claims"):
         value = row.get(field)
-        if value is not None and (not isinstance(value, list)
-                                  or not all(isinstance(item, str) for item in value)):
-            errors.append(f"{field} must be null or a list of strings")
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            errors.append(f"{field} must be null or a list")
+            continue
+        if field == "claims":
+            # Accept both encodings documented in eval/metrics.py: a bare span
+            # string, or the record object requested by prompts/judge.txt.
+            for index, item in enumerate(value):
+                if isinstance(item, str):
+                    continue
+                if not isinstance(item, dict):
+                    errors.append(f"claims[{index}] must be a string or a claim object")
+                    continue
+                if not isinstance(item.get("text"), str):
+                    errors.append(f"claims[{index}].text must be a string")
+                label = item.get("label")
+                if label is not None and label not in {"supported", "unsupported"}:
+                    errors.append(f"claims[{index}].label must be supported or unsupported")
+                evidence = item.get("evidence_doc_id")
+                if evidence is not None and not (
+                        isinstance(evidence, str) and _DOC_ID.fullmatch(evidence)):
+                    errors.append(f"claims[{index}].evidence_doc_id must be a DOCnnnn id or null")
+        elif not all(isinstance(item, str) for item in value):
+            errors.append("contexts must be null or a list of strings")
     if not isinstance(row.get("metrics"), dict):
         errors.append("metrics must be an object")
+    if "marker_results" in row and row["marker_results"] is not None:
+        markers = row["marker_results"]
+        if not isinstance(markers, list):
+            errors.append("marker_results must be null or a list")
+        else:
+            for index, item in enumerate(markers):
+                if not isinstance(item, dict):
+                    errors.append(f"marker_results[{index}] must be an object")
+                    continue
+                if type(item.get("index")) is not int or item["index"] < 1:
+                    errors.append(f"marker_results[{index}].index must be a positive integer")
+                if item.get("kind") not in {"literal", "variants", "invalid"}:
+                    errors.append(
+                        f"marker_results[{index}].kind must be literal, variants, or invalid")
+                if item.get("satisfied") is not None and not isinstance(item.get("satisfied"), bool):
+                    errors.append(f"marker_results[{index}].satisfied must be a boolean or null")
+    errors.extend(_judge_errors(row))
     if not _valid_usage(row.get("usage"), nullable=True):
         errors.append("usage must be null or contain calls and non-negative/unknown token counters")
     trace = row.get("tool_trace")

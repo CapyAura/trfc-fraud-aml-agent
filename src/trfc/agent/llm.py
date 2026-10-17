@@ -153,7 +153,6 @@ def resolve_llm_config() -> LLMConfig:
     except ValueError:
         max_retries = 3
 
-    # Max tokens
     tokens_str = os.getenv("LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))
     try:
         max_tokens = int(tokens_str)
@@ -210,12 +209,17 @@ def call_llm(
     request_client=None,
     max_retries: int = 3,
     retry_delay: float = 2.0,
+    max_tokens: int | None = None,
 ):
-    """Return Groq's structured assistant message and provider usage.
+    """Return the provider's structured assistant message and usage.
 
     The request client can be injected for deterministic tests. SDK-level
     retries are disabled for the default client so ``Usage.calls`` reflects
     requests issued by this wrapper rather than hidden SDK retries.
+
+    ``max_tokens`` overrides the agent default. The evaluation judge needs a
+    larger budget than the agent: it returns one JSON object containing every
+    claim, and a truncated response is unparseable rather than merely shorter.
     """
     env_retries = os.getenv("LLM_MAX_RETRIES")
     if env_retries and env_retries.isdigit():
@@ -255,9 +259,10 @@ def call_llm(
                 "temperature": 0.0,
             }
             max_tokens_env = os.getenv("LLM_MAX_TOKENS")
-            if max_tokens_env and max_tokens_env.isdigit():
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            elif max_tokens_env and max_tokens_env.isdigit():
                 kwargs["max_tokens"] = int(max_tokens_env)
-            else:
                 kwargs["max_tokens"] = DEFAULT_MAX_TOKENS
 
             if tools:

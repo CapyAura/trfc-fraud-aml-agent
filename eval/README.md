@@ -17,7 +17,10 @@ Required fields include `id`, `question`, `category`, `allowed_to_answer`,
 `expected.criteria_type="contains_all"` markers. These markers are a deterministic
 minimum check, not a semantic answer judge. Refusal cases carry `refusal_type`
 (`i` or `ii`), `missing_evidence` where applicable, and source references for the
-scope/evidence rule.
+scope/evidence rule. A case may also declare `expected_tier` (1, 2, or 3) to
+require that at least one `search_policy` call actually passed that `tier` to the
+retrieval tool; the resulting `metadata_filter_usage` metric scores pipeline
+behaviour, not answer text, and is `null` for cases without a declared tier.
 
 Validate without importing the agent or calling an API:
 
@@ -32,19 +35,46 @@ python -m eval.run_eval --dry-run
   from the answer make the metric unscorable, preventing a caller from scoring
   unrelated text. This does not recognize paraphrases or prove entailment.
   Without claim segmentation, answer, or context, the value is `null`/unscorable.
-- **Context precision:** fraction of retrieved contexts whose `DOCnnnn` ID is in
-  the question's `source_refs`. This checks source relevance labels, not semantic
-  relevance within a document. Missing references/context or a missing DOC ID
-  are unscorable rather than counted as irrelevant.
+  Two claim encodings are accepted: a bare span string, or the record object
+  requested by `prompts/judge.txt`
+  (`{"text", "label", "evidence_doc_id"}`). A judge-supplied `label` never
+  contributes to the score — `eval/metrics.py` always recomputes support by
+  literal match, and `claim_support_detail()` exposes where the judge and the
+  deterministic check disagree. The judge is a diagnostic aid, not the scorer.
+- **Context precision:** fraction of retrieved contexts citing a `DOCnnnn` ID
+  that appears in the question's `source_refs`. Each context is judged by the
+  citations it actually carries, so a chunk spanning two documents is scored
+  rather than voiding the case. Contexts with no citation at all are excluded
+  from the denominator (unknown, not irrelevant); the value is unscorable only
+  when nothing in the case can be scored. This checks source relevance labels,
+  not semantic relevance within a document.
 - **Answer correctness:** checks every literal marker in `expected.values` for
   `contains_all` cases. It is deterministic and intentionally conservative.
 - **Correct refusal/decision rate:** checks answer versus refusal against
   `allowed_to_answer`; refusal subtype is scored separately only when the runtime
   reports an actual refusal and its type `i`/`ii`. Missing outcome/type is not silently scored.
+- **Metadata filter usage:** `true` when a case declaring `expected_tier` has a
+  captured `search_policy` call carrying exactly that `tier`; `false` when the
+  trace was captured but no such call exists; `null` for cases without a declared
+  tier or with an unavailable (`null`) trace. An unavailable trace never reads as
+  success. This proves the tier pre-filter was *requested and passed*, not that
+  the returned chunks were filtered correctly.
 
-No LLM judge is used. These metrics must not be presented as RAGAS scores or as
-semantic proof. The project course brief mentions answer relevance as a general
-evaluation requirement; it is not claimed by this implementation.
+No LLM judge contributes to any reported score. `prompts/judge.txt` exists as an
+optional reference prompt for claim segmentation and label comparison, but no
+code loads it and its labels are not used by `eval/metrics.py`. These metrics
+must not be presented as RAGAS scores or as semantic proof. The project course
+brief mentions answer relevance as a general evaluation requirement; it is not
+claimed by this implementation.
+
+**Redaction versus scoring order.** `eval/run_eval.py` computes `row["metrics"]`
+first and then writes `redact_for_log(row)`, so scores are computed on unredacted
+text and are correct. The persisted row is not: `eval/redaction.py` masks money
+amounts, account IDs, and transaction IDs, including the `expected.values`
+markers. A reader therefore cannot re-derive a score from the committed log. For
+example, `q05` expects `"220.000.000 VND"` and the stored answer shows
+`[REDACTED] VND` in every position where that figure appeared. Treat the CSV
+scores as the record and the JSONL answers as redacted transcripts.
 
 ## Runtime adapter and evaluation JSONL
 
@@ -82,10 +112,12 @@ entry point. DOC0009 Arts. 3–5 and DOC0007 Art. 12 identify which structured
 facts would be relevant, but the project has no authenticated source for the
 caller-provided method classification or log-retention status. The runtime
 therefore returns `needs_information` and does not populate outcome, refusal
-subtype, rule ID, or decision source. Freeze and Flag remain blocked pending
-authenticated approval and a structured rule-match source. Claims and provider
-usage remain unavailable. These tests carry synthetic provenance and are not
-genuine production C4 evidence.
+subtype, rule ID, or decision source. Freeze and Flag remain blocked **on this
+offline path** pending authenticated approval and a structured rule-match
+source; the live agent path uses `submit_decision` instead (see the staging run
+above). Claims remain unavailable everywhere, so faithfulness is unscorable.
+These offline tests carry synthetic provenance and are not genuine production C4
+evidence.
 
 For the built-in detailed adapter, `tool_trace: null` means
 unavailable/incomplete capture, while `tool_trace: []` means capture completed
@@ -167,7 +199,8 @@ CSV and charts explicitly labelled as having no evaluation data.
   `state.reset()` without an explicit disposable database path.
 - Authentic run logs from staging verification are included in
   `logs/staging_20261017_201308/` covering all 12 testset cases across freeze,
-  flag, and refusal scenarios.
+  flag, and refusal scenarios. The logs in `logs/staging_20261018_*` are later
+  re-runs of the same pipeline and include the `metadata_filter_usage` metric.
 - The proposed runtime metadata interface for Person B review is documented in
   [`PERSON_B_C4_METADATA_CONTRACT.md`](PERSON_B_C4_METADATA_CONTRACT.md). It is
   a proposal, not an agreed runtime implementation.
@@ -208,7 +241,8 @@ uv sync --locked --group dev
 ```
 
 Then run the offline checks with `make test` and `make eval`, or invoke the
-virtual-environment Python directly on Windows:
+virtual-environment Python directly on Windows (the commands are equivalent; a
+live run is `make eval-live`, which needs credentials and an isolated database):
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest --ignore=tests/test_tools.py --basetemp .test-tmp/pytest
@@ -232,20 +266,32 @@ from a row is labelled `Missing`; an explicit JSON `null` or invalid metric is
 labelled `Unscorable`; a valid measured value is shown as its score. Refusal
 subtype is `N/A` for answerable questions. Missing usage remains blank rather
 than being converted to zero. CSV fields use standard CSV escaping, and malformed
-JSONL is rejected with its file and line number. No genuine run logs are included, so
-do not treat `make demo`, a real evaluation, or report values as verified until
-the A/B integration and real scenarios have run.
+JSONL is rejected with its file and line number.
+
+A genuine 12-case run is committed at `logs/staging_20261017_201308/`
+(`evaluation.jsonl`, `step_events.jsonl`, `decision_events.jsonl`,
+`semantic_gate_result.json`, and `reports/`). It was produced by
+`scripts/run_c4_staging.ps1` against a disposable database outside the
+repository. Two limits still apply when reading it: `faithfulness` is
+`Unscorable` on all 12 rows because the runtime emits no `claims`, and money
+values in the log are redacted, so per-case scores cannot be re-derived from
+the committed answers. See
+[`reports/verification/c4_final_report.md`](../reports/verification/c4_final_report.md)
+for the per-case failure analysis. A newer genuine run at
+`logs/staging_20261018_015357/` records `metadata_filter_usage=true` for `q04`
+and passes the semantic gate.
 
 ### Latest recorded verification status
 
-The current working tree passed the full offline pytest suite on Python 3.14.7 using the project `.venv`:
+Measured on 2026-10-18 on Python 3.14.7 with the project `.venv`:
 
-- Adapter tests: **14 passed**.
-- Focused regression suite: **118 passed, 1 skipped**.
-- Full suite: **142 passed, 1 skipped**.
+- Adapter tests: **19 passed** (`.venv\Scripts\python.exe -m pytest -q tests/test_agent_adapter.py`).
+- Focused regression (`test_tools` + `test_native_tool_calling` + `test_client2` + `test_db_isolation`): **76 passed**.
+- Full suite: **400 passed, 1 skipped** (`.venv\Scripts\python.exe -m pytest -q --ignore=tests/test_tools.py`). The skip is `tests/test_eval_db_isolation.py:73`, because symlink creation is unavailable without Windows admin.
+- `tests/test_tools.py` is excluded by the project test target; it collects 4 tests and resets `data/state.db`.
 - `git diff --check` completed without whitespace errors; Git emitted only LF-to-CRLF working-copy notices.
 
-These results establish automated test coverage only. They do not establish a live Groq request, genuine MCP subprocess isolation, or authoritative outcome/refusal/claims metadata. The `AgentRunResult` interface remains provisional pending cross-owner confirmation. No live evaluation or production database operation is claimed.
+The tests establish automated coverage; they do not by themselves establish provider behavior. The committed staging run above is the live-execution evidence. `claims` is still not produced by the runtime, so faithfulness stays unscorable, and the `AgentRunResult` interface remains provisional pending cross-owner confirmation. No production database operation is claimed.
 
 ## C4 trace validation and genuine-run evidence
 
@@ -381,11 +427,13 @@ event validator on each retained file; separately review execution provenance.
    or `ii`), and a trace showing no freeze/flag write tool was called. This
    scenario must not change state.
 
-At present, all three genuine scenarios remain blocked pending end-to-end
-runtime integration. The CLI awaits `run()` through `asyncio.run(...)`; native
-tool messages and isolated database selection are implemented and covered by
-fake/unit tests, but no live Groq-to-local-MCP request has been verified. The
-database isolation guard must be enabled with a disposable `TRFC_STATE_DB` for
-any approved write scenario. The built-in adapter does not infer refusal
-outcome or subtype, so refusal scoring still requires an established runtime
-classification. No genuine scenario logs are currently present.
+The three scenarios were collected in one staging pass rather than three
+separate runs: `q05` (freeze), `q06` (flag), and `q09`–`q12` (refusal) in
+`logs/staging_20261017_201308/`. That satisfies "distinct outcomes in `logs/`";
+it does not produce three separate JSONL files. The database isolation guard was
+enabled with a disposable `TRFC_STATE_DB`, and the run exercised the live
+provider through the agent loop rather than a fake. Two caveats remain: the log
+does not record which model served the run, and redaction removes the account
+and transaction identifiers, so the flag read-back can only be verified through
+the semantic gate's redaction-aware path, not by a reader matching `TX003`
+directly.

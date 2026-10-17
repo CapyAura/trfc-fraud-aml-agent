@@ -408,7 +408,9 @@ def test_missing_provider_key_fails_before_constructing_or_calling_a_client(monk
     try:
         call_llm([])
     except RuntimeError as exc:
-        assert ("No valid LLM provider configured" in str(exc)) or ("Missing GROQ_API_KEY" in str(exc))
+        # Every provider selector is deleted above, so resolution fails in the
+        # automatic-discovery branch before any provider-specific key check.
+        assert "No valid LLM provider configured" in str(exc)
     else:
         raise AssertionError("missing credentials should fail before a request")
 

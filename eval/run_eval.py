@@ -22,19 +22,27 @@ from typing import Any
 from uuid import uuid4
 
 try:  # package execution: python -m eval.run_eval
-    from .metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
+    from .metrics import (
+        answer_correctness, context_precision, faithfulness, marker_results,
+        metadata_filter_usage, refusal_decision_correctness, refusal_rate,
+    )
     from .database_isolation import require_isolated_database
     from .redaction import redact_for_log
     from .step_events import append_step_events
     from .decision_events import append_decision_event
     from .provenance import resolve_execution_mode
+    from .llm_judge import evaluate_judge, load_judge_prompt
 except ImportError:  # direct script execution
-    from metrics import answer_correctness, context_precision, faithfulness, refusal_decision_correctness, refusal_rate
+    from metrics import (
+        answer_correctness, context_precision, faithfulness, marker_results,
+        metadata_filter_usage, refusal_decision_correctness, refusal_rate,
+    )
     from database_isolation import require_isolated_database
     from redaction import redact_for_log
     from step_events import append_step_events
     from decision_events import append_decision_event
     from provenance import resolve_execution_mode
+    from llm_judge import evaluate_judge, load_judge_prompt
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TESTSET = ROOT / "tests" / "testset.jsonl"
@@ -95,9 +103,28 @@ def validate_testset(cases: list[dict[str, Any]]) -> None:
         expected = case["expected"]
         expected_values = expected.get("values")
         if (not isinstance(expected.get("criteria_type"), str)
-                or not isinstance(expected_values, list) or not expected_values
-                or not all(isinstance(value, str) and value.strip() for value in expected_values)):
-            raise ValueError(f"Case {case['id']} expected needs a criteria_type and non-empty string values")
+                or not isinstance(expected_values, list) or not expected_values):
+            raise ValueError(f"Case {case['id']} expected needs a criteria_type and non-empty values")
+        for index, criterion in enumerate(expected_values, 1):
+            if isinstance(criterion, str):
+                if not criterion.strip():
+                    raise ValueError(f"Case {case['id']} expected value {index} is empty")
+                continue
+            if not isinstance(criterion, dict):
+                raise ValueError(
+                    f"Case {case['id']} expected value {index} must be a string or a variant object")
+            if set(criterion) - {"label", "all", "any"}:
+                raise ValueError(
+                    f"Case {case['id']} expected value {index} has unsupported keys")
+            keys = [key for key in ("all", "any") if key in criterion]
+            if len(keys) != 1:
+                raise ValueError(
+                    f"Case {case['id']} expected value {index} needs exactly one of all/any")
+            variants = criterion[keys[0]]
+            if (not isinstance(variants, list) or not variants
+                    or not all(isinstance(v, str) and v.strip() for v in variants)):
+                raise ValueError(
+                    f"Case {case['id']} expected value {index} needs non-empty string variants")
         if not isinstance(case["source_refs"], list) or not case["source_refs"] or not all(
             isinstance(ref, str) and re.fullmatch(r"DOC\d{4}", ref, re.IGNORECASE)
             for ref in case["source_refs"]
@@ -115,6 +142,10 @@ def validate_testset(cases: list[dict[str, Any]]) -> None:
             or not all(isinstance(item, str) and item.strip() for item in case["missing_evidence"])
         ):
             raise ValueError(f"Case {case['id']} missing_evidence must be a list of non-empty strings")
+        if "expected_tier" in case and (
+            type(case["expected_tier"]) is not int or case["expected_tier"] not in (1, 2, 3)
+        ):
+            raise ValueError(f"Case {case['id']} expected_tier must be an integer tier 1, 2, or 3")
         if case["category"] == "no_answer":
             if (case["allowed_to_answer"] or case["expected_outcome"] != "refusal"
                     or case.get("refusal_type") not in {"i", "ii"}
@@ -164,6 +195,13 @@ def _usage_or_none(value: Any) -> dict[str, Any] | None:
     return {key: value[key] for key in keys}
 
 
+_JUDGE_ROW_FIELDS = (
+    "judge_faithfulness", "judge_outcome", "judge_refusal_type",
+    "judge_outcome_correct", "judge_refusal_type_correct", "judge_claims",
+    "judge_agreement", "judge_note", "judge_error",
+)
+
+
 def _actual_outcome(result: dict[str, Any]) -> str | None:
     outcome = result.get("actual_outcome")
     if isinstance(outcome, str) and outcome in {"answer", "refusal"}:
@@ -175,7 +213,9 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                    case_timeout: float = 180.0, *,
                    step_events_path: Path | None = None,
                    decision_events_path: Path | None = None,
-                   execution_mode: str | None = None) -> dict[str, Any]:
+                   execution_mode: str | None = None,
+                   judge_request=None,
+                   judge_prompt_template: str | None = None) -> dict[str, Any]:
     if case_timeout <= 0:
         raise ValueError("case_timeout must be positive")
     has_event_output = step_events_path is not None or decision_events_path is not None
@@ -192,6 +232,7 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
     require_isolated_database()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = failed = unscorable = 0
+    judged = judge_skipped = judge_errored = 0
     refusal_rows = []
     event_written = 0
     event_skipped: dict[str, int] = {}
@@ -208,12 +249,13 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 "expected_outcome": case["expected_outcome"],
                 "allowed_to_answer": case["allowed_to_answer"],
                 "expected_refusal_type": case.get("refusal_type"),
+                "expected_tier": case.get("expected_tier"),
                 "expected": case["expected"], "source_refs": case["source_refs"],
                 "actual_answer": None, "actual_outcome": None,
                 "actual_refusal_type": None, "contexts": None, "claims": None,
                 "policy_rule_id": None, "decision_source": None,
                 "policy_decision_status": None, "policy_reason_code": None,
-                "tool_trace": None, "usage": None, "metrics": {},
+                "tool_trace": None, "usage": None, "metrics": {}, "marker_results": None,
                 "error": None, "status": "failed",
             }
             try:
@@ -297,7 +339,25 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                         and row["actual_outcome"] == "refusal"
                         else None
                     ),
+                    "metadata_filter_usage": metadata_filter_usage(
+                        row["tool_trace"], case.get("expected_tier")),
                 }
+                # Recorded before redaction: the stored answer loses money
+                # amounts and IDs, so this is the only in-log proof of why
+                # answer_correctness got its value.
+                row["marker_results"] = marker_results(row["actual_answer"], case["expected"])
+                # The judge runs here, on the unredacted row. Once redaction is
+                # applied below, the amounts it would need are gone.
+                if judge_request is not None:
+                    judgement = evaluate_judge(
+                        row, judge_request, prompt_template=judge_prompt_template)
+                    row.update(judgement.as_row_fields())
+                    if judgement.error is None:
+                        judged += 1
+                    elif "REDACTED" in judgement.error or "not 'completed'" in judgement.error:
+                        judge_skipped += 1
+                    else:
+                        judge_errored += 1
             except Exception as exc:  # continue so a single case cannot abort the set
                 row["error"] = f"{type(exc).__name__}: {exc}"
                 row["status"] = "failed"
@@ -308,6 +368,10 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 row["policy_decision_status"] = None
                 row["policy_reason_code"] = None
                 row["claims"] = None
+                row["marker_results"] = None
+                if judge_request is not None:
+                    row.update({field: None for field in _JUDGE_ROW_FIELDS})
+                    row["judge_error"] = "case failed before judging"
                 failed += 1
             case_serialization_failed = False
             try:
@@ -333,6 +397,7 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
                 row["tool_trace"] = None
                 row["usage"] = None
                 row["metrics"] = {}
+                row["marker_results"] = None
                 encoded_row = json.dumps(redact_for_log(row), ensure_ascii=False, allow_nan=False)
             stream.write(encoded_row + "\n")
             if not case_serialization_failed and row["status"] != "failed":
@@ -402,6 +467,8 @@ async def evaluate(cases: list[dict[str, Any]], adapter, output_path: Path,
     refusal_summary = refusal_rate(refusal_rows)
     summary = {"completed": completed, "failed": failed, "unscorable": unscorable,
                "refusal_summary": refusal_summary}
+    if judge_request is not None:
+        summary["judge"] = {"judged": judged, "skipped": judge_skipped, "errored": judge_errored}
     if step_events_path is not None:
         summary["step_event_log"] = {
             "written": event_written,
@@ -431,10 +498,17 @@ def main() -> int:
                         help="Append structured runtime decisions to a separate JSONL file")
     parser.add_argument("--execution-mode", choices=("real", "mock", "unit_test", "synthetic"),
                         help="Optional consistency check against the selected adapter's registered provenance")
+    parser.add_argument("--judge", action="store_true",
+                        help="Also run the LLM judge (prompts/judge.txt) on each unredacted case. "
+                             "Judge columns are additive and never replace the deterministic metrics.")
+    parser.add_argument("--judge-interval-seconds", type=float, default=2.0,
+                        help="Pause between judge requests (default: 2)")
     args = parser.parse_args()
     has_event_output = args.step_events_output is not None or args.decision_events_output is not None
     if args.dry_run and (has_event_output or args.execution_mode is not None):
         parser.error("--dry-run cannot emit events")
+    if args.dry_run and args.judge:
+        parser.error("--dry-run cannot call the judge")
     if not has_event_output and args.execution_mode is not None:
         parser.error("--execution-mode requires event output")
     try:
@@ -454,12 +528,24 @@ def main() -> int:
         adapter = _load_adapter(args.agent_adapter)
     except Exception as exc:
         parser.error(f"Cannot load agent adapter: {exc}")
+    judge_request = None
+    judge_template = None
+    if args.judge:
+        from trfc.agent.llm import call_llm as _judge_call_llm
+        from eval.llm_judge import JUDGE_MAX_TOKENS as _judge_max_tokens
+
+        def judge_request(messages):
+            return _judge_call_llm(messages, max_tokens=_judge_max_tokens)
+
+        judge_template = load_judge_prompt()
     try:
         summary = asyncio.run(evaluate(
             cases, adapter, args.output, args.case_timeout,
             step_events_path=args.step_events_output,
             decision_events_path=args.decision_events_output,
             execution_mode=args.execution_mode,
+            judge_request=judge_request,
+            judge_prompt_template=judge_template,
         ))
     except ValueError as exc:
         parser.error(str(exc))

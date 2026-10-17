@@ -23,7 +23,7 @@ DEMO_LOG := $${TMPDIR:-/tmp}/trfc-demo.log
 DEMO := $(DEMO_ENV) $(DEMO_RUN) 2>$(DEMO_LOG) || { echo; echo "--- LOI, log ky thuat: $(DEMO_LOG)"; cat $(DEMO_LOG); exit 1; }
 endif
 
-.PHONY: setup demo eval validate-testset report test
+.PHONY: setup demo eval eval-live validate-testset report test
 
 setup:
 	uv sync --locked --extra dev
@@ -40,6 +40,15 @@ demo:
 # Offline validation only; a real evaluation requires a working adapter.
 eval validate-testset:
 	$(PY) -m eval.run_eval --dry-run
+
+# Live evaluation: calls the agent + LLM through MCP and rewrites the logs that
+# feed `make report`. Needs credentials/network and an isolated TRFC_STATE_DB
+# (the evaluator fails closed otherwise). On Windows run via Git Bash/WSL or use
+# the equivalent `python -m eval.run_eval` command from README.md.
+eval-live:
+	$(PY) -m eval.run_eval --agent-adapter eval.agent_adapter:run_case \
+		--output logs/evaluation.jsonl
+	$(PY) -m eval.report --input logs/evaluation.jsonl --output-dir eval/reports --rescore
 
 report:
 	$(PY) -m eval.report --input logs/evaluation.jsonl --output-dir eval/reports

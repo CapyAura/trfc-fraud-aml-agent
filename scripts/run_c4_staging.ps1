@@ -38,14 +38,19 @@ Write-Output "=== RUNNING REAL EVALUATION (12 cases) ==="
 $evalOut = "$LOG_DIR\evaluation.jsonl"
 $stepEventsOut = "$LOG_DIR\step_events.jsonl"
 $decisionEventsOut = "$LOG_DIR\decision_events.jsonl"
+$judgeOut = "$LOG_DIR\judge.jsonl"
 
+# --judge runs the LLM judge on the unredacted row inside the evaluator. It is a
+# second, independent measurement: judge_* columns are added beside the
+# deterministic metrics and never replace them.
 & .venv\Scripts\python.exe -m eval.run_eval `
   --testset tests\testset.jsonl `
   --output "$evalOut" `
   --step-events-output "$stepEventsOut" `
   --decision-events-output "$decisionEventsOut" `
   --agent-adapter eval.agent_adapter:run_case `
-  --execution-mode real
+  --execution-mode real `
+  --judge
 
 $evalExit = $LASTEXITCODE
 Write-Output "Evaluation exit code: $evalExit"
@@ -98,5 +103,18 @@ Write-Output "Semantic Gate exit code: $gateExit"
 if ($gateExit -ne 0) { throw "Semantic Gate FAILED with exit code $gateExit" }
 
 Write-Output "=== GENERATING FINAL REPORT ==="
-& .venv\Scripts\python.exe -m eval.report --input "$evalOut" --output-dir "$LOG_DIR\reports"
+& .venv\Scripts\python.exe -m eval.report --input "$evalOut" --output-dir "$LOG_DIR\reports" --rescore
+
+Write-Output "=== JUDGE SUMMARY ==="
+& .venv\Scripts\python.exe -c @"
+import json
+rows = [json.loads(line) for line in open(r'$evalOut', encoding='utf-8') if line.strip()]
+judged = [r for r in rows if r.get('judge_faithfulness') is not None]
+errors = [r for r in rows if r.get('judge_error')]
+print(f'judged={len(judged)}/{len(rows)} errors={len(errors)}')
+for r in rows:
+    print(f\"  {r['question_id']}: det={r['metrics'].get('faithfulness')} \"
+          f\"judge={r.get('judge_faithfulness')} outcome={r.get('judge_outcome')} \"
+          f\"err={r.get('judge_error')}\")
+"@
 Write-Output "=== STAGING PIPELINE COMPLETED SUCCESSFULLY ==="

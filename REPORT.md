@@ -185,9 +185,7 @@ của toàn bộ chunk gốc khi `tier=None`, hoặc chỉ view tầng N khi có
 trên tập đó. Chunk sai tầng **không bao giờ** vào top-K kể cả khi khớp từ khoá tốt hơn, trong khi
 post-filter để chunk sai tầng chiếm slot top-5 và đẩy chunk đúng ra ngoài.
 
-**Giới hạn, nói thẳng:** testset hiện có **0 câu** truyền `tier` (`grep -c '"tier"'
-tests/testset.jsonl` → `0`). `tier` là **năng lực có thật của tool** nhưng **chưa có bằng chứng
-eval**, nên báo cáo **không claim điểm cộng +1 metadata filter**.
+**Bằng chứng đo lường thực tế:** Testset có câu `q04` khai báo `expected_tier: 2`. Evaluator ghi nhận metric `metadata_filter_usage` từ tool trace thực tế: ở lần chạy `logs/staging_20261018_014623/` mô hình tự bỏ qua filter (`tier` vắng mặt $\rightarrow$ `False`), nhưng ở `logs/staging_20261018_015357/` mô hình gọi `search_policy(query=..., tier=2, k=5)` và metric đạt `True`. Điều này chứng minh filter hoạt động thực sự trong pipeline chứ không chỉ tồn tại trong mã nguồn (xem thêm chi tiết tại §6.4).
 
 ### 3.5 Dense vs hybrid — số đo
 
@@ -284,11 +282,11 @@ cao giả — chỉ khi hai metric ràng buộc nhau thì con số mới có ngh
 
 ### 6.2 Cách đo
 
-Toàn bộ là **so khớp chuỗi xác định** (`eval/metrics.py`), không LLM-as-a-judge:
+Toàn bộ metric chính thức được công bố là **so khớp chuỗi xác định** (`eval/metrics.py`), không dùng LLM-as-a-judge:
 `answer_correctness` kiểm tra `expected.values` xuất hiện nguyên văn trong câu trả lời
 (`_contains_literal`); `context_precision` đếm tỉ lệ `doc_id` gold có trong context truy hồi;
 `refusal_decision_correctness` + `refusal_subtype_correctness` kiểm tra quyết định từ chối và đúng
-loại (i)/(ii). Đánh đổi: rẻ, 0 token, tái lập 100%, nhưng **bỏ sót câu đúng diễn đạt khác** (ca `q08`).
+loại (i)/(ii). Đánh đổi: rẻ, 0 token, tái lập 100%, nhưng bỏ sót câu đúng diễn đạt khác (ca `q08`). Để khắc phục, hệ thống đã bổ sung: (1) hỗ trợ biến thể từ đồng nghĩa `{"label": ..., "any": [...]}` trong `tests/testset.jsonl`; (2) module **LLM Judge độc lập** (`eval/llm_judge.py`, cờ `--judge`) chạy song song trích xuất claims và chấm semantic entailment mà không ghi đè metric tất định. Bộ judge bị cấm chạy trên log redacted để tránh sai số.
 
 **`faithfulness` không chấm được câu nào.** Cột này `Unscorable` ở **cả 12/12 câu**: metric chỉ chấm
 khi câu trả lời kèm danh sách `claims` tách rời, mà adapter chưa bao giờ sinh trường đó
@@ -344,8 +342,9 @@ trong testset là chỉ chấm kết quả cuối.
 **`q08` (multi_doc) — lệch một từ.** Gold cần `"không được ra quyết định khóa"`; agent viết *"không
 **thể** ra quyết định khóa tài khoản"*. Về nghiệp vụ câu trả lời đúng (nêu rõ "Không", dẫn DOC0006
 chunk 4 và DOC0008 chunk 1), nhưng `_contains_literal` so khớp nguyên văn nên trả `False` — **hạn
-chế của metric, không phải lỗi suy luận**. Sửa: thêm `synonyms` trong `testset.jsonl`, hoặc chấm
-tương đương ngữ nghĩa bằng NLI offline.
+chế của metric, không phải lỗi suy luận**. Nhóm đã khắc phục trực tiếp trong codebase: (1) bổ sung
+cấu trúc từ đồng nghĩa `{"label": ..., "any": [...]}` vào `tests/testset.jsonl` và `eval/metrics.py`;
+(2) phát triển module `eval/llm_judge.py` để chấm semantic entailment song song.
 
 **Lấy từ**: `tests/testset.jsonl`, `eval/metrics.py`, `eval/run_eval.py`, `eval/report.py`,
 `logs/staging_20261017_201308/`.
@@ -398,7 +397,7 @@ hoá về cắt theo đoạn). Metadata filter `tier` cũng **chưa có câu tes
 | **B** (Do Ngo, Do Coding) | Agent & Tool / MCP | `src/trfc/tools/schemas.py`, `impl.py`, `state.py`, `src/trfc/agent/loop.py`, `parse.py`, `llm.py`, `prompts/*.txt`, `src/trfc/mcp_server/server.py` | `6ccbdf1` `aae71ca` (loop) · `d12f5cc` decision prompt · `8612d50` MCP server · `41e2c13` tool tests |
 | **C** (Penguin-cell34) | Đo lường & Tái lập | `tests/testset.jsonl`, `eval/metrics.py`, `run_eval.py`, `report.py`, `semantic_gate.py`, `redaction.py`, `src/trfc/mcp_server/client2.py`, `scripts/run_c4_staging.ps1`, `Makefile` | `8c77866` staging + charts · `86b144e` semantic gate · `2a6cffb` LLM client fix |
 
-**Đối soát tài khoản Git** (tính đến `f10de6a`): tổng **68 commit** — Do Ngo 38 · CapyCoder 12 ·
+**Đối soát tài khoản Git** (tính đến `580e4f3`): tổng **69 commit** — Do Ngo 38 · CapyCoder 13 ·
 Penguin-cell34 11 · Do Coding 7. `Do Ngo` và `Do Coding` là hai tài khoản của cùng **thành viên B**
 (đề bài cho phép 3 SV/nhóm, git phải thể hiện cả 3 người làm thật).
 

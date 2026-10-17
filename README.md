@@ -20,11 +20,24 @@ unit tests không đồng nghĩa tích hợp live đã được xác minh; xem [
 
 ## Chạy
 
-Các lệnh offline có trong Makefile:
+Cần **GNU make**. Trên Windows không có sẵn `make` (chỉ có `mingw32-make`), nên dùng
+Git Bash/WSL hoặc chạy trực tiếp lệnh Python tương đương bên dưới.
 
 ```bash
-make eval       # validate testset; không chạy agent và không ghi evaluation logs
+make eval       # validate testset offline (--dry-run); không chạy agent, không ra số liệu
 make test       # pytest, target hiện không bao gồm tests/test_tools.py
+make eval-live  # chạy agent + LLM thật rồi xuất CSV/SVG; cần key + network + DB cách ly
+```
+
+Lệnh tương đương khi không có `make`:
+
+```powershell
+.\.venv\Scripts\python.exe -m eval.run_eval --dry-run                       # = make eval
+.\.venv\Scripts\python.exe -m pytest --ignore=tests/test_tools.py           # = make test
+.\.venv\Scripts\python.exe -m eval.run_eval --agent-adapter eval.agent_adapter:run_case `
+    --output logs/evaluation.jsonl                                          # = make eval-live
+.\.venv\Scripts\python.exe -m eval.report --input logs/evaluation.jsonl `
+    --output-dir eval/reports --rescore
 ```
 
 `make setup` dùng `uv sync --locked --extra dev`. Lệnh `make demo` gọi agent và cần
@@ -34,16 +47,18 @@ repo (rồi `reset()` seed lại mỗi lần), nên `data/state.db` production k
 không cần cấu hình tay. Không xem demo là offline check.
 
 **Trạng thái xác minh gần nhất của working tree:** full offline pytest suite đã pass
-trên Python 3.13.5 bằng `.venv` của dự án: adapter tests **19 passed**, focused
+trên Python 3.14.7 bằng `.venv` của dự án: adapter tests **19 passed**, focused
 regression suite (`test_tools` + `test_native_tool_calling` + `test_client2` +
-`test_db_isolation`) **76 passed**, full suite **368 passed, 0 skipped**.
+`test_db_isolation`) **76 passed**, full suite **401 passed, 1 skipped** (skip do
+Windows không tạo được symlink ở `tests/test_eval_db_isolation.py:73`).
 `git diff --check` không có whitespace error; Git chỉ báo LF-to-CRLF working-copy
 notices. Các kết quả trên chỉ xác nhận automated test coverage. Người dùng đã
 báo cáo riêng MCP subprocess isolation PASS trên DB tạm; lần triển khai policy
-offline này không chạy lại verifier. Chưa xác minh live Groq request hoặc
-production policy metadata cho outcome/refusal/claims. Deterministic offline
-policy tests dùng provenance `synthetic` và không phải genuine scenario evidence.
-Không có live evaluation hoặc thao tác trên production database được xác nhận.
+offline này không chạy lại verifier. Có live evaluation thật (agent + LLM + MCP,
+DB tạm ngoài repo) ở `logs/staging_20261017_201308/` — report trích số từ đó.
+`claims` vẫn không được runtime sinh ra nên `faithfulness` chưa chấm được.
+Deterministic offline policy tests dùng provenance `synthetic` và không phải
+genuine scenario evidence. Không có thao tác nào trên production database.
 
 ## Tài liệu
 

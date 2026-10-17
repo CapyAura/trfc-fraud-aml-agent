@@ -13,8 +13,8 @@ from xml.sax.saxutils import escape
 CSV_COLUMNS = [
     "question_id", "category", "expected_outcome", "actual_outcome",
     "answer_correctness", "faithfulness", "context_precision",
-    "refusal_correctness", "refusal_subtype_correctness", "calls",
-    "prompt_tokens", "completion_tokens", "max_prompt", "status", "error",
+    "refusal_correctness", "refusal_subtype_correctness", "metadata_filter_usage",
+    "calls", "prompt_tokens", "completion_tokens", "max_prompt", "status", "error",
 ]
 
 
@@ -50,9 +50,80 @@ def _refusal_fields(row: dict[str, Any]) -> tuple[bool | None, bool | None]:
     ) else None
 
 
-def csv_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+REDACTED = "[REDACTED]"
+
+
+def _contains_redaction(value: Any) -> bool:
+    """True when a stored value still carries a redaction placeholder."""
+    if isinstance(value, str):
+        return REDACTED in value
+    if isinstance(value, dict):
+        return any(_contains_redaction(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_redaction(item) for item in value)
+    return False
+
+
+def rescore_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Recompute derived metrics from a stored row without changing evidence.
+
+    The committed JSONL is append-only evidence: the answer, contexts, claims
+    and usage stay exactly as recorded. Only the derived ``metrics`` block is
+    recalculated, so a metric implementation fix can be reflected in the CSV
+    and charts.
+
+    Redaction makes some metrics unsafe to recompute. If the stored ``expected``
+    markers or ``actual_answer`` contain ``[REDACTED]``, re-scoring
+    ``answer_correctness`` would compare placeholders against each other and
+    silently turn a real failure into a pass. Those cells are therefore left at
+    the value recorded at run time (which was computed before redaction).
+    ``context_precision`` and the refusal metrics only use document IDs and
+    outcome labels, which redaction does not alter.
+    """
+    from .metrics import (
+        answer_correctness, context_precision, faithfulness,
+        metadata_filter_usage, refusal_decision_correctness,
+    )
+
+    expected = row.get("expected") if isinstance(row.get("expected"), dict) else None
+    allowed = row.get("allowed_to_answer")
+    answer = row.get("actual_answer")
+    contexts = row.get("contexts") if isinstance(row.get("contexts"), list) else None
+    claims = row.get("claims") if isinstance(row.get("claims"), list) else None
+    sources = row.get("source_refs") if isinstance(row.get("source_refs"), list) else None
+    actual_type = row.get("actual_refusal_type")
+    expected_type = row.get("expected_refusal_type")
+    expected_tier = row.get("expected_tier")
+
+    recorded = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    rescore_safe = not (_contains_redaction(expected) or _contains_redaction(answer))
+
+    rescored = dict(row)
+    rescored["metrics"] = {
+        "answer_correctness": (
+            answer_correctness(answer, expected, allowed)
+            if isinstance(allowed, bool) and rescore_safe
+            else recorded.get("answer_correctness")
+        ),
+        "faithfulness": faithfulness(answer, contexts, claims),
+        "context_precision": context_precision(row.get("question_id"), contexts, sources),
+        "refusal_correctness": refusal_decision_correctness(allowed, row.get("actual_outcome")),
+        "refusal_subtype_correctness": (
+            actual_type == expected_type
+            if expected_type in {"i", "ii"} and actual_type in {"i", "ii"}
+            and row.get("actual_outcome") == "refusal"
+            else None
+        ),
+        "metadata_filter_usage": metadata_filter_usage(row.get("tool_trace"), expected_tier),
+    }
+    return rescored
+
+
+def csv_rows(rows: list[dict[str, Any]], *, rescore: bool = False) -> list[dict[str, Any]]:
     flattened = []
     for row in rows:
+        if rescore:
+            row = rescore_row(row)
         metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
         usage = row.get("usage") if isinstance(row.get("usage"), dict) else {}
         refusal_correct, subtype_correct = _refusal_fields(row)
@@ -81,6 +152,7 @@ def csv_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 subtype_correct if subtype_correct is not None else
                 ("N/A" if row.get("allowed_to_answer") is True else "Unscorable")
             ),
+            "metadata_filter_usage": metric_cell("metadata_filter_usage", "boolean"),
             "calls": usage.get("calls"), "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"), "max_prompt": usage.get("max_prompt"),
             "status": row.get("status", "unscorable"), "error": row.get("error"),
@@ -96,11 +168,23 @@ def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
         writer.writerows(csv_rows(rows))
 
 
+def _chart_value(value: Any) -> float | None:
+    """Numeric value a bar chart can plot, or None when the cell is not a score.
+
+    Booleans are scores here: ``refusal_correctness`` is True/False, and treating
+    it as "not a number" silently produced an empty chart for a metric that was
+    measured on every case. True plots as 100%, False as 0%.
+    """
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)) and math.isfinite(value) and 0 <= value <= 1:
+        return float(value)
+    return None
+
+
 def _bar_chart(title: str, metric: str, values: list[tuple[str, Any]], path: Path) -> None:
     width, height, left, top, plot_w, plot_h = 760, 420, 190, 80, 510, 270
-    scored = [(label, value) for label, value in values
-              if not isinstance(value, bool) and isinstance(value, (int, float))
-              and math.isfinite(value) and 0 <= value <= 1]
+    scored = [(label, value) for label, value in values if _chart_value(value) is not None]
     missing = sum(value == "Missing" for _, value in values)
     unscorable = sum(value == "Unscorable" for _, value in values)
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
@@ -129,12 +213,12 @@ def _bar_chart(title: str, metric: str, values: list[tuple[str, Any]], path: Pat
         bar_w = min(34, slot * 0.65)
         for index, (label, value) in enumerate(values):
             x = left + index * slot + (slot - bar_w) / 2
-            if (not isinstance(value, bool) and isinstance(value, (int, float))
-                    and math.isfinite(value) and 0 <= value <= 1):
-                h = plot_h * max(0, min(float(value), 1))
+            plotted = _chart_value(value)
+            if plotted is not None:
+                h = plot_h * max(0, min(plotted, 1))
                 y = top + plot_h - h
                 parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" fill="#3976a8"/>')
-                parts.append(f'<text x="{x+bar_w/2:.1f}" y="{y-6:.1f}" text-anchor="middle" font-family="sans-serif" font-size="11">{value:.0%}</text>')
+                parts.append(f'<text x="{x+bar_w/2:.1f}" y="{y-6:.1f}" text-anchor="middle" font-family="sans-serif" font-size="11">{plotted:.0%}</text>')
             else:
                 state = value if value in {"Missing", "Unscorable", "N/A"} else "Unscorable"
                 parts.append(f'<text x="{x+bar_w/2:.1f}" y="{top+plot_h-6}" text-anchor="middle" font-family="sans-serif" font-size="10">{state}</text>')
@@ -146,12 +230,15 @@ def _bar_chart(title: str, metric: str, values: list[tuple[str, Any]], path: Pat
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
-def generate_report(input_path: Path, output_dir: Path) -> tuple[Path, Path, Path]:
+def generate_report(input_path: Path, output_dir: Path, *,
+                    rescore: bool = False) -> tuple[Path, Path, Path]:
     rows = load_results(input_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "evaluation.csv"
     faith_path = output_dir / "faithfulness.svg"
     refusal_path = output_dir / "refusal_correctness.svg"
+    if rescore:
+        rows = [rescore_row(row) for row in rows]
     write_csv(rows, csv_path)
     flat = csv_rows(rows)
     _bar_chart("Faithfulness by question", "Faithfulness", [(r["question_id"] or "?", r["faithfulness"]) for r in flat], faith_path)
@@ -163,11 +250,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=Path(__file__).resolve().parents[1] / "logs" / "evaluation.jsonl")
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent / "reports")
+    parser.add_argument(
+        "--rescore", action="store_true",
+        help="Recompute derived metrics from the stored answers/contexts/claims "
+             "instead of reading the metrics block recorded at run time. The "
+             "input JSONL is never modified.",
+    )
     args = parser.parse_args()
     if not args.input.exists():
         parser.error(f"No evaluation data at {args.input}; run a real evaluation first. No scores were generated.")
     try:
-        outputs = generate_report(args.input, args.output_dir)
+        outputs = generate_report(args.input, args.output_dir, rescore=args.rescore)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     for path in outputs:

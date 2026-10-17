@@ -13,8 +13,10 @@
 | GitHub Copilot | — | Gợi ý autocomplete trong `impl.py`, `server.py` (B) |
 | ChatGPT | — | Hỏi ý tưởng thiết kế `tier` pre-filter, debug lỗi asyncio trên Windows |
 
-Không dùng AI để sinh log chạy hay số liệu eval. Mọi số trong `eval/reports/` đều lấy từ lần
-chạy thật, tái lập bằng `make eval`.
+Không dùng AI để sinh log chạy hay số liệu eval. Mọi số trong `eval/reports/` đều lấy từ lần chạy thật
+với agent + LLM sống. `make eval` chỉ validate testset offline (`--dry-run`), **không** tái lập được số
+liệu; lần chạy thật tái lập bằng `make eval-live` (cần LLM key + network + một `TRFC_STATE_DB` cách ly).
+Log của lần chạy được trích trong report nằm ở `logs/staging_20261017_201308/`.
 
 ## 2. Prompt chính
 
@@ -55,8 +57,6 @@ chạy thật, tái lập bằng `make eval`.
 
 ### Person C (Evaluation, Logging, Semantic Gate & C4 Staging)
 
-> *Ghi chú:* Đây là bản tóm tắt 4 nhóm yêu cầu chính đã sử dụng trong các phiên làm việc với AI qua các giai đoạn (tổng hợp theo xác nhận/hồi tưởng của người thực hiện), không phải trích dẫn nguyên văn toàn bộ lịch sử hội thoại dài.
-
 - **Khung đánh giá chất lượng RAG, Schema Validator & Client MCP thứ hai (Giai đoạn nền tảng):** Tóm tắt yêu cầu: Xây dựng runner `eval/run_eval.py`, các hàm tính metric theo cơ chế so khớp chuỗi xác định trong `eval/metrics.py` (faithfulness, context precision, refusal type i/ii), validator schema `eval/log_validation.py`, và cài đặt client MCP độc lập `src/trfc/mcp_server/client2.py` phục vụ yêu cầu host thứ hai theo hợp đồng interop.
 - **Adapter & Logging phòng thủ:** Tóm tắt yêu cầu: Nâng cấp `eval/agent_adapter.py` và `eval/step_events.py`, bổ sung biến môi trường `CASE_INTERVAL_SECONDS` chống nghẽn HTTP 429 và ép kiểu phòng thủ cho trường `arguments` khi tool gặp lỗi để không làm đứt gãy schema logging.
 - **Semantic Gate & Offline Unit Tests:** Tóm tắt yêu cầu: Xây dựng `eval/semantic_gate.py` cùng 24 offline unit tests trong `tests/test_semantic_gate.py` để kiểm định độc lập 12 test case, xác minh chặt chẽ cơ chế read-after-write của Freeze (`checked_at > frozen_at`) và Flag (`tx_id` nằm trong danh sách), cùng phân loại từ chối loại I/II.
@@ -87,15 +87,15 @@ chạy thật, tái lập bằng `make eval`.
 
 | File | Trạng thái Git | Mức độ AI can thiệp | Vai trò chính |
 |---|---|---|---|
-| `eval/agent_adapter.py` | Đã push (`origin/main`) | AI hỗ trợ chỉnh sửa | Thêm sleep giãn cách `CASE_INTERVAL_SECONDS` điều tiết tần suất gọi LLM provider |
-| `eval/step_events.py` | Đã push (`origin/main`) | AI hỗ trợ chỉnh sửa | Defensive coercion cho arguments khi tool status là error, đảm bảo JSONL hợp lệ |
+| `eval/agent_adapter.py` | Đã push (`origin/main`) | C viết, AI chỉnh sửa | Thêm sleep giãn cách `CASE_INTERVAL_SECONDS` điều tiết tần suất gọi LLM provider |
+| `eval/step_events.py` | Đã push (`origin/main`) | C viết, AI chỉnh sửa | Defensive coercion cho arguments khi tool status là error, đảm bảo JSONL hợp lệ |
 | `eval/semantic_gate.py` | Đã push (`origin/main`) | AI tạo mới phần lớn | Cổng thẩm định ngữ nghĩa độc lập cho 12 case, kiểm tra write/verify và phân loại từ chối |
-| `tests/testset.jsonl` | Đã push (`origin/main`) | AI hỗ trợ chỉnh sửa | Bổ sung metadata `scenario` (`freeze`, `flag`, `refusal`) cho các ca kiểm thử |
+| `tests/testset.jsonl` | Đã push (`origin/main`) | C viết | Bổ sung metadata `scenario` (`freeze`, `flag`, `refusal`) cho các ca kiểm thử |
 | `tests/test_semantic_gate.py` | Đã push (`origin/main`) | AI tạo mới | Bộ 24 unit tests offline kiểm định toàn bộ các quy tắc và nhánh rẽ của Semantic Gate |
 | `scripts/run_c4_staging.ps1` | Đã push (`origin/main`) | AI tạo mới | Runner PowerShell tự động hóa staging C4, cô lập DB và đối soát SHA256 DB production |
-| `eval/run_eval.py` | Đã push (`origin/main`) | AI viết phần lớn | Runner CLI chạy evaluation, quản lý batching, gọi adapter và xuất logs JSONL |
-| `eval/metrics.py` | Đã push (`origin/main`) | AI viết | Hàm tính toán độ chính xác từ chối (loại i/ii), faithfulness và trích dẫn theo so khớp chuỗi |
-| `eval/report.py` | Đã push (`origin/main`) | AI viết | Xuất kết quả đánh giá ra bảng CSV (`evaluation.csv`) và vẽ biểu đồ cột SVG (`faithfulness.svg`, `refusal_correctness.svg`) |
+| `eval/run_eval.py` | Đã push (`origin/main`) | C viết | Runner CLI chạy evaluation, quản lý batching, gọi adapter và xuất logs JSONL |
+| `eval/metrics.py` | Đã push (`origin/main`) | C viết | Hàm tính toán độ chính xác từ chối (loại i/ii), faithfulness và trích dẫn theo so khớp chuỗi |
+| `eval/report.py` | Đã push (`origin/main`) | C viết | Xuất kết quả đánh giá ra bảng CSV (`evaluation.csv`) và vẽ biểu đồ cột SVG (`faithfulness.svg`, `refusal_correctness.svg`) |
 | `eval/log_validation.py` | Đã push (`origin/main`) | AI viết | Bộ thẩm định định dạng JSONL theo schema (case, event, decision) |
 | `eval/decision_events.py` | Đã push (`origin/main`) | AI viết | Data class và hàm emitter ghi nhận sự kiện quyết định `decision_events.jsonl` |
 | `eval/redaction.py` | Đã push (`origin/main`) | AI viết | Tiện ích che giấu dữ liệu nhạy cảm (PII/account/tx) phục vụ logging an toàn |
@@ -118,11 +118,11 @@ chạy thật, tái lập bằng `make eval`.
 | `scripts/verify_mcp_write_isolation.py` | Đã push (`origin/main`) | AI viết | Kịch bản kiểm chứng độc lập tính cô lập của MCP write tool |
 | `scripts/verify_mcp_isolation.py` | Đã push (`origin/main`) | AI viết | Kịch bản kiểm chứng mức độ cô lập của MCP server runtime |
 | `scripts/diagnose_windows_asyncio.py` | Đã push (`origin/main`) | AI viết | Kịch bản chẩn đoán tương thích vòng lặp asyncio trên nền tảng Windows |
-| `eval/README.md` | Đã push (`origin/main`) | AI soạn thảo | Tài liệu đặc tả kiến trúc evaluation framework, các chế độ chạy và CLI schema |
-| `eval/PERSON_B_C4_METADATA_CONTRACT.md` | Đã push (`origin/main`) | AI hỗ trợ soạn | Đặc tả hợp đồng giao diện metadata runtime giữa Person B và Person C |
-| `reports/verification/c4_runtime_integration_contract.md` | Đã push (`origin/main`) | AI hỗ trợ soạn | Hợp đồng tích hợp runtime agent với hệ thống kiểm thử C4 |
-| `reports/verification/c4_b2_runtime_contract.md` | Đã push (`origin/main`) | AI hỗ trợ soạn | Tài liệu đối chiếu hợp đồng metadata runtime B2 |
-| `reports/verification/c4_policy_source_inventory.md` | Đã push (`origin/main`) | AI hỗ trợ soạn | Bảng kiểm kê nguồn chính sách và căn cứ pháp lý phục vụ testset C4 |
+| `eval/README.md` | Đã push (`origin/main`) | C viết | Tài liệu đặc tả kiến trúc evaluation framework, các chế độ chạy và CLI schema |
+| `eval/PERSON_B_C4_METADATA_CONTRACT.md` | Đã push (`origin/main`) | C viết AI hỗ trợ soạn | Đặc tả hợp đồng giao diện metadata runtime giữa Person B và Person C |
+| `reports/verification/c4_runtime_integration_contract.md` | Đã push (`origin/main`) | C viết, AI hỗ trợ soạn | Hợp đồng tích hợp runtime agent với hệ thống kiểm thử C4 |
+| `reports/verification/c4_b2_runtime_contract.md` | Đã push (`origin/main`) | C viết, AI hỗ trợ soạn | Tài liệu đối chiếu hợp đồng metadata runtime B2 |
+| `reports/verification/c4_policy_source_inventory.md` | Đã push (`origin/main`) | C viết, AI hỗ trợ soạn | Bảng kiểm kê nguồn chính sách và căn cứ pháp lý phục vụ testset C4 |
 
 ## 4. Phần tự viết (không dùng AI)
 
@@ -136,7 +136,8 @@ chạy thật, tái lập bằng `make eval`.
   nghĩa phân định rạch ròi giữa write và verify (`checked_at > frozen_at`, tx nằm trong
   `flagged_tx_ids`); thiết lập nguyên tắc an toàn cô lập staging DB ra ngoài repo để bảo vệ
   production DB; trực tiếp chạy staging thực tế và nghiệm thu kết quả; cách chấm refusal loại
-  (i)/(ii), logging `USAGE`, quy trình git.
+  (i)/(ii), logging `USAGE`, quy trình git; quyết định **không** để LLM-judge tính điểm thay
+  cho metric tất định, và lý do judge bị cấm chạy trên văn bản đã redact.
 
 ## 5. Trạng thái đối chiếu
 
